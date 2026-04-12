@@ -13,7 +13,17 @@ import { auth, db } from './firebase';
 import { onAuthStateChanged, User, signInAnonymously } from 'firebase/auth';
 import { collection, doc, setDoc, deleteDoc, onSnapshot, query, where } from 'firebase/firestore';
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+let aiClient: GoogleGenAI | null = null;
+const getAI = () => {
+  if (!aiClient) {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      throw new Error("Clé API Gemini manquante. Veuillez l'ajouter dans le panneau 'Secrets' (icône clé en haut à droite).");
+    }
+    aiClient = new GoogleGenAI({ apiKey });
+  }
+  return aiClient;
+};
 
 interface TrainingSession {
   jour: string;
@@ -291,6 +301,7 @@ Réponds exclusivement par un tableau JSON, sans texte superflu :
 ]
       `;
 
+      const ai = getAI();
       const response = await ai.models.generateContent({
         model: 'gemini-3.1-pro-preview',
         contents: prompt,
