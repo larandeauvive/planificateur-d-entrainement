@@ -30,6 +30,7 @@ interface TrainingSession {
   type: string;
   desc: string;
   locked: boolean;
+  userWish?: string;
 }
 
 interface Goal {
@@ -92,7 +93,7 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<string>('dashboard');
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
-  const [editForm, setEditForm] = useState({ type: '', desc: '' });
+  const [editForm, setEditForm] = useState({ wish: '' });
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
@@ -210,8 +211,7 @@ export default function App() {
     if (!activeProfile) return;
     setEditingIndex(index);
     setEditForm({
-      type: activeProfile.plan[index].type,
-      desc: activeProfile.plan[index].desc
+      wish: activeProfile.plan[index].userWish || ''
     });
   };
 
@@ -220,9 +220,8 @@ export default function App() {
     const newPlan = [...activeProfile.plan];
     newPlan[index] = {
       ...newPlan[index],
-      type: editForm.type,
-      desc: editForm.desc,
-      locked: true // On verrouille automatiquement la séance modifiée manuellement
+      userWish: editForm.wish,
+      locked: false // On déverrouille pour que l'IA puisse formater la séance selon le souhait
     };
     await updateProfile({ plan: newPlan });
     setEditingIndex(null);
@@ -286,6 +285,11 @@ ${pastRacesText}
 - "affutage" : ${activeProfile.isAffutage ? 'Oui (Réduis le volume de 50% la semaine précédant un objectif A)' : 'Non'}
 - "locked" : Si une séance dans le planning envoyé est "locked": true, tu ne la modifies JAMAIS. Tu adaptes les autres jours pour garder une charge cohérente.
 
+### CONTRAINTES UTILISATEUR (SOUHAITS)
+Dans le planning actuel fourni, certaines journées contiennent peut-être un champ "userWish". 
+Si ce champ est présent et non vide pour un jour donné, tu DOIS ABSOLUMENT créer la séance de ce jour en respectant ce souhait à la lettre (ex: si le souhait est "sortie longue 20km", tu mets type="Sortie Longue" et desc="20km..."). 
+Tu dois ensuite adapter intelligemment le reste de la semaine autour de cette contrainte pour garder une charge d'entraînement cohérente.
+
 ### PLANNING ACTUEL (à adapter)
 ${JSON.stringify(planToAdapt, null, 2)}
 
@@ -324,7 +328,15 @@ Réponds exclusivement par un tableau JSON, sans texte superflu :
       });
 
       if (response.text) {
-        const newPlan = JSON.parse(response.text);
+        const generatedPlan = JSON.parse(response.text);
+        // On réinjecte les souhaits (userWish) pour ne pas les perdre lors des prochaines générations
+        const newPlan = generatedPlan.map((session: any) => {
+          const originalSession = planToAdapt.find(s => s.jour === session.jour);
+          return {
+            ...session,
+            userWish: originalSession?.userWish || ''
+          };
+        });
         updateProfile({ plan: newPlan });
         setActiveTab('dashboard');
       }
@@ -527,17 +539,12 @@ Réponds exclusivement par un tableau JSON, sans texte superflu :
                       {/* Content */}
                       {editingIndex === index ? (
                         <div className="flex-1 space-y-3 bg-white dark:bg-slate-950 p-3 rounded-lg border border-slate-200 dark:border-slate-800 shadow-sm">
-                          <Input 
-                            value={editForm.type} 
-                            onChange={e => setEditForm({...editForm, type: e.target.value})} 
-                            placeholder="Type (ex: EF, VMA...)"
-                            className="font-medium h-9"
-                          />
+                          <Label className="text-xs text-slate-500 font-semibold">Votre souhait pour {session.jour} :</Label>
                           <Textarea 
-                            value={editForm.desc} 
-                            onChange={e => setEditForm({...editForm, desc: e.target.value})} 
-                            placeholder="Description de la séance..."
-                            rows={3}
+                            value={editForm.wish} 
+                            onChange={e => setEditForm({ wish: e.target.value })} 
+                            placeholder="Ex: Je veux faire une sortie longue de 20km, ou Repos forcé..."
+                            rows={2}
                             className="text-sm resize-none"
                           />
                           <div className="flex gap-2 justify-end pt-1">
@@ -545,17 +552,24 @@ Réponds exclusivement par un tableau JSON, sans texte superflu :
                               <X className="w-3 h-3 mr-1" /> Annuler
                             </Button>
                             <Button variant="default" size="sm" onClick={() => saveEdit(index)} className="h-8 text-xs bg-blue-600 hover:bg-blue-700 text-white">
-                              <Check className="w-3 h-3 mr-1" /> Enregistrer & Adapter
+                              <Check className="w-3 h-3 mr-1" /> Adapter la semaine
                             </Button>
                           </div>
                         </div>
                       ) : (
                         <div className="flex-1 space-y-2">
                           <div className="flex items-center justify-between gap-2">
-                            <Badge variant="outline" className={`font-medium border ${getTypeColor(session.type)}`}>
-                              {session.type}
-                            </Badge>
-                            <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-400 hover:text-blue-600 dark:hover:text-blue-400" onClick={() => startEdit(index)} title="Modifier cette séance">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <Badge variant="outline" className={`font-medium border ${getTypeColor(session.type)}`}>
+                                {session.type}
+                              </Badge>
+                              {session.userWish && (
+                                <Badge variant="secondary" className="bg-purple-100 text-purple-700 border-purple-200 dark:bg-purple-900/30 dark:text-purple-400 dark:border-purple-800 text-xs">
+                                  Souhait: {session.userWish}
+                                </Badge>
+                              )}
+                            </div>
+                            <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-400 hover:text-blue-600 dark:hover:text-blue-400" onClick={() => startEdit(index)} title="Émettre un souhait pour ce jour">
                               <Pencil className="w-4 h-4" />
                             </Button>
                           </div>

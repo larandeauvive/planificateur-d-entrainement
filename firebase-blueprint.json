@@ -8,7 +8,8 @@
         "jour": { "type": "string" },
         "type": { "type": "string" },
         "desc": { "type": "string" },
-        "locked": { "type": "boolean" }
+        "locked": { "type": "boolean" },
+        "userWish": { "type": "string" }
       },
       "required": ["jour", "type", "desc", "locked"]
     },
