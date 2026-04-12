@@ -1,0 +1,66 @@
+{
+  "entities": {
+    "TrainingSession": {
+      "title": "TrainingSession",
+      "description": "A single training session in a plan.",
+      "type": "object",
+      "properties": {
+        "jour": { "type": "string" },
+        "type": { "type": "string" },
+        "desc": { "type": "string" },
+        "locked": { "type": "boolean" }
+      },
+      "required": ["jour", "type", "desc", "locked"]
+    },
+    "Goal": {
+      "title": "Goal",
+      "description": "A race goal.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "date": { "type": "string" },
+        "distance": { "type": "number" },
+        "elevation": { "type": "number" }
+      },
+      "required": ["id", "name", "date"]
+    },
+    "PastRace": {
+      "title": "PastRace",
+      "description": "A past race result.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "date": { "type": "string" },
+        "distance": { "type": "number" },
+        "elevation": { "type": "number" },
+        "time": { "type": "string" }
+      },
+      "required": ["id", "name", "date", "time"]
+    },
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "A user's training profile.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string", "description": "The UID of the user who owns this profile." },
+        "name": { "type": "string" },
+        "nbSeances": { "type": "number" },
+        "mainGoals": { "type": "array", "items": { "$ref": "#/entities/Goal" } },
+        "secondaryGoals": { "type": "array", "items": { "$ref": "#/entities/Goal" } },
+        "pastRaces": { "type": "array", "items": { "$ref": "#/entities/PastRace" } },
+        "isAffutage": { "type": "boolean" },
+        "plan": { "type": "array", "items": { "$ref": "#/entities/TrainingSession" } }
+      },
+      "required": ["id", "userId", "name", "nbSeances", "isAffutage", "plan", "mainGoals", "secondaryGoals", "pastRaces"]
+    }
+  },
+  "firestore": {
+    "/profiles/{profileId}": {
+      "schema": "#/entities/UserProfile",
+      "description": "User profiles containing goals and plans."
+    }
+  }
+}
