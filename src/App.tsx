@@ -449,7 +449,7 @@ Réponds exclusivement par un tableau JSON de 14 éléments (un pour chaque date
 
       const ai = getAI();
       const response = await ai.models.generateContent({
-        model: 'gemini-3.1-pro-preview',
+        model: 'gemini-2.5-pro',
         contents: prompt,
         config: {
           responseMimeType: 'application/json',
@@ -466,7 +466,7 @@ Réponds exclusivement par un tableau JSON de 14 éléments (un pour chaque date
                 coherenceWarning: { type: Type.STRING },
                 locked: { type: Type.BOOLEAN },
               },
-              requirose: ['date', 'type', 'support', 'desc', 'logic', 'locked'],
+              required: ['date', 'type', 'support', 'desc', 'logic', 'locked'],
             },
           },
         },
@@ -497,8 +497,8 @@ Réponds exclusivement par un tableau JSON de 14 éléments (un pour chaque date
         
         // Fusionner le nouveau plan de la semaine avec le plan global
         const generatedDates = newPlan.map((s: any) => s.date);
-        const filterosePlan = planToAdapt.filter(s => !generatedDates.includes(s.date));
-        const finalPlan = [...filterosePlan, ...newPlan];
+        const filteredPlan = planToAdapt.filter(s => !generatedDates.includes(s.date));
+        const finalPlan = [...filteredPlan, ...newPlan];
         
         updateProfile({ plan: finalPlan });
         setActiveTab('dashboard');
@@ -706,6 +706,11 @@ Réponds exclusivement par un tableau JSON de 14 éléments (un pour chaque date
                     </Button>
                   </div>
                 </div>
+                {error && (
+                  <div className="mt-4 p-3 text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded-lg dark:bg-rose-900/20 dark:border-rose-800 dark:text-rose-400">
+                    {error}
+                  </div>
+                )}
               </CardHeader>
               <CardContent className="p-0">
                 <div className="divide-y divide-zinc-100 dark:divide-zinc-800/50">
