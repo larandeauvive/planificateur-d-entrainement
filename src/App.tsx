@@ -8,9 +8,9 @@ import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Lock, Unlock, Loader2, Calendar, Settings2, Activity, Trophy, Flame, Mountain, Dumbbell, Plus, Trash2, Download, Users, UserPlus, History, Clock, Pencil, Check, X, LogIn, LogOut } from 'lucide-react';
-import { auth, db } from './firebase';
-import { onAuthStateChanged, User, signInAnonymously } from 'firebase/auth';
+import { Lock, Unlock, Loader2, Calendar, Settings2, Activity, Trophy, Flame, Mountain, Dumbbell, Plus, Trash2, Download, Users, UserPlus, History, Clock, Pencil, Check, X, LogIn, LogOut, Lightbulb, AlertTriangle } from 'lucide-react';
+import { auth, db, googleProvider } from './firebase';
+import { onAuthStateChanged, User, signInAnonymously, linkWithPopup, signInWithPopup, signOut } from 'firebase/auth';
 import { collection, doc, setDoc, deleteDoc, onSnapshot, query, where } from 'firebase/firestore';
 
 let aiClient: GoogleGenAI | null = null;
@@ -31,6 +31,9 @@ interface TrainingSession {
   desc: string;
   locked: boolean;
   userWish?: string;
+  support?: string;
+  logic?: string;
+  coherenceWarning?: string;
 }
 
 interface Goal {
@@ -63,13 +66,13 @@ interface UserProfile {
 }
 
 const defaultPlan: TrainingSession[] = [
-  { jour: 'Lundi', type: 'Repos', desc: 'Récupération', locked: false },
-  { jour: 'Mardi', type: 'EF', desc: 'Endurance Fondamentale 45min', locked: false },
-  { jour: 'Mercredi', type: 'Repos', desc: 'Récupération', locked: false },
-  { jour: 'Jeudi', type: 'VMA', desc: 'Échauffement 20min + 10x400m + Retour au calme 10min', locked: false },
-  { jour: 'Vendredi', type: 'Repos', desc: 'Récupération', locked: false },
-  { jour: 'Samedi', type: 'EF', desc: 'Endurance Fondamentale 1h', locked: false },
-  { jour: 'Dimanche', type: 'Sortie Longue', desc: 'Sortie Longue 1h30', locked: false },
+  { jour: 'Lundi', type: 'Repos', desc: 'Récupération', locked: false, support: 'Course à pied', logic: 'Le repos est essentiel après la sortie longue du dimanche pour assimiler le travail.' },
+  { jour: 'Mardi', type: 'EF', desc: 'Endurance Fondamentale 45min', locked: false, support: 'Course à pied', logic: 'Reprise en douceur pour faire circuler le sang et travailler la base aérobie.' },
+  { jour: 'Mercredi', type: 'Repos', desc: 'Récupération', locked: false, support: 'Course à pied', logic: 'Repos avant la grosse séance d\'intensité de la semaine.' },
+  { jour: 'Jeudi', type: 'VMA', desc: 'Échauffement 20min + 10x400m + Retour au calme 10min', locked: false, support: 'Course à pied', logic: 'Développement de la Vitesse Maximale Aérobie pour progresser en vitesse.' },
+  { jour: 'Vendredi', type: 'Repos', desc: 'Récupération', locked: false, support: 'Course à pied', logic: 'Assimilation de la séance de VMA.' },
+  { jour: 'Samedi', type: 'EF', desc: 'Endurance Fondamentale 1h', locked: false, support: 'Course à pied', logic: 'Pré-fatigue en douceur avant la sortie longue du lendemain.' },
+  { jour: 'Dimanche', type: 'Sortie Longue', desc: 'Sortie Longue 1h30', locked: false, support: 'Course à pied', logic: 'Travail de l\'endurance spécifique et de la résistance musculaire.' },
 ];
 
 const defaultProfile = (userId: string): UserProfile => ({
@@ -93,7 +96,7 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<string>('dashboard');
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
-  const [editForm, setEditForm] = useState({ wish: '' });
+  const [editForm, setEditForm] = useState({ wish: '', support: 'Course à pied' });
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
@@ -140,6 +143,39 @@ export default function App() {
 
     return () => unsubscribe();
   }, [user, isAuthReady]);
+
+  const handleLinkAccount = async () => {
+    if (!user) return;
+    try {
+      await linkWithPopup(user, googleProvider);
+      alert("Compte sauvegardé avec succès ! Vous pouvez maintenant vous connecter avec ce compte Google sur vos autres appareils pour retrouver vos données.");
+    } catch (err: any) {
+      console.error(err);
+      if (err.code === 'auth/credential-already-in-use') {
+        alert("Ce compte Google est déjà lié à un autre profil. Veuillez utiliser un autre compte Google, ou connectez-vous directement si vous souhaitez écraser les données actuelles.");
+      } else {
+        alert("Erreur lors de la sauvegarde du compte.");
+      }
+    }
+  };
+
+  const handleLogin = async () => {
+    try {
+      await signInWithPopup(auth, googleProvider);
+    } catch (err) {
+      console.error(err);
+      alert("Erreur lors de la connexion.");
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+      // Après la déconnexion, onAuthStateChanged va recréer un compte anonyme automatiquement
+    } catch (err) {
+      console.error(err);
+    }
+  };
 
   const activeProfile = profiles.find(p => p.id === activeProfileId);
 
@@ -211,7 +247,8 @@ export default function App() {
     if (!activeProfile) return;
     setEditingIndex(index);
     setEditForm({
-      wish: activeProfile.plan[index].userWish || ''
+      wish: activeProfile.plan[index].userWish || '',
+      support: activeProfile.plan[index].support || 'Course à pied'
     });
   };
 
@@ -221,6 +258,7 @@ export default function App() {
     newPlan[index] = {
       ...newPlan[index],
       userWish: editForm.wish,
+      support: editForm.support,
       locked: false // On déverrouille pour que l'IA puisse formater la séance selon le souhait
     };
     await updateProfile({ plan: newPlan });
@@ -285,10 +323,12 @@ ${pastRacesText}
 - "affutage" : ${activeProfile.isAffutage ? 'Oui (Réduis le volume de 50% la semaine précédant un objectif A)' : 'Non'}
 - "locked" : Si une séance dans le planning envoyé est "locked": true, tu ne la modifies JAMAIS. Tu adaptes les autres jours pour garder une charge cohérente.
 
-### CONTRAINTES UTILISATEUR (SOUHAITS)
-Dans le planning actuel fourni, certaines journées contiennent peut-être un champ "userWish". 
-Si ce champ est présent et non vide pour un jour donné, tu DOIS ABSOLUMENT créer la séance de ce jour en respectant ce souhait à la lettre (ex: si le souhait est "sortie longue 20km", tu mets type="Sortie Longue" et desc="20km..."). 
-Tu dois ensuite adapter intelligemment le reste de la semaine autour de cette contrainte pour garder une charge d'entraînement cohérente.
+### CONTRAINTES UTILISATEUR (SOUHAITS ET SUPPORTS)
+Dans le planning actuel fourni, certaines journées contiennent un champ "userWish" et/ou "support". 
+- Si "userWish" est présent, tu DOIS ABSOLUMENT créer la séance de ce jour en respectant ce souhait (ex: "sortie longue 20km"). 
+- Si "support" est différent de "Course à pied" (ex: Vélo, Natation, Renforcement), tu dois adapter le type et la description pour ce sport.
+- Tu dois ensuite adapter intelligemment le reste de la semaine autour de ces contraintes.
+- Si le souhait de l'utilisateur te semble incohérent ou risqué par rapport à la logique d'entraînement (ex: placer une sortie longue la veille d'une course, ou ne pas respecter de repos après une grosse séance), tu DOIS remplir le champ "coherenceWarning" pour l'avertir, tout en appliquant quand même son souhait.
 
 ### PLANNING ACTUEL (à adapter)
 ${JSON.stringify(planToAdapt, null, 2)}
@@ -298,8 +338,11 @@ Réponds exclusivement par un tableau JSON, sans texte superflu :
 [
   {
     "jour": "Lundi",
-    "type": "Repos | EF | VMA | Seuil | Côtes | Sortie Longue | Rando-course",
+    "type": "Repos | EF | VMA | Seuil | Côtes | Sortie Longue | Rando-course | Croisé | Renforcement",
+    "support": "Course à pied | Vélo | Natation | Renforcement | Autre",
     "desc": "Description détaillée (Durée, Intensité, D+)",
+    "logic": "Explication pédagogique courte : pourquoi cette séance est placée ici dans la semaine ?",
+    "coherenceWarning": "Avertissement si le souhait est incohérent (laisser vide si tout va bien)",
     "locked": false
   }
 ]
@@ -318,10 +361,13 @@ Réponds exclusivement par un tableau JSON, sans texte superflu :
               properties: {
                 jour: { type: Type.STRING },
                 type: { type: Type.STRING },
+                support: { type: Type.STRING },
                 desc: { type: Type.STRING },
+                logic: { type: Type.STRING },
+                coherenceWarning: { type: Type.STRING },
                 locked: { type: Type.BOOLEAN },
               },
-              required: ['jour', 'type', 'desc', 'locked'],
+              required: ['jour', 'type', 'support', 'desc', 'logic', 'locked'],
             },
           },
         },
@@ -334,7 +380,8 @@ Réponds exclusivement par un tableau JSON, sans texte superflu :
           const originalSession = planToAdapt.find(s => s.jour === session.jour);
           return {
             ...session,
-            userWish: originalSession?.userWish || ''
+            userWish: originalSession?.userWish || '',
+            support: session.support || originalSession?.support || 'Course à pied'
           };
         });
         updateProfile({ plan: newPlan });
@@ -430,6 +477,25 @@ Réponds exclusivement par un tableau JSON, sans texte superflu :
               {profiles.length > 1 && (
                 <Button variant="ghost" size="icon" className="h-8 w-8 hover:text-red-500" onClick={() => deleteProfile(activeProfileId)} title="Supprimer le profil">
                   <Trash2 className="w-4 h-4" />
+                </Button>
+              )}
+            </div>
+            
+            <div className="flex items-center gap-2">
+              {user?.isAnonymous ? (
+                <>
+                  <Button variant="outline" size="sm" onClick={handleLinkAccount} className="text-blue-600 border-blue-200 hover:bg-blue-50 dark:border-blue-900 dark:hover:bg-blue-900/30">
+                    <LogIn className="w-4 h-4 mr-2" />
+                    Sauvegarder (Google)
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={handleLogin} className="text-slate-500 hover:text-slate-700">
+                    Déjà un compte ?
+                  </Button>
+                </>
+              ) : (
+                <Button variant="outline" size="sm" onClick={handleLogout} className="text-slate-500 hover:text-slate-700">
+                  <LogOut className="w-4 h-4 mr-2" />
+                  Déconnexion
                 </Button>
               )}
             </div>
@@ -538,16 +604,32 @@ Réponds exclusivement par un tableau JSON, sans texte superflu :
 
                       {/* Content */}
                       {editingIndex === index ? (
-                        <div className="flex-1 space-y-3 bg-white dark:bg-slate-950 p-3 rounded-lg border border-slate-200 dark:border-slate-800 shadow-sm">
-                          <Label className="text-xs text-slate-500 font-semibold">Votre souhait pour {session.jour} :</Label>
-                          <Textarea 
-                            value={editForm.wish} 
-                            onChange={e => setEditForm({ wish: e.target.value })} 
-                            placeholder="Ex: Je veux faire une sortie longue de 20km, ou Repos forcé..."
-                            rows={2}
-                            className="text-sm resize-none"
-                          />
-                          <div className="flex gap-2 justify-end pt-1">
+                        <div className="flex-1 space-y-4 bg-white dark:bg-slate-950 p-4 rounded-lg border border-slate-200 dark:border-slate-800 shadow-sm">
+                          <div className="space-y-2">
+                            <Label className="text-xs text-slate-500 font-semibold">Type de support :</Label>
+                            <select 
+                              className="w-full text-sm border border-slate-200 rounded-md p-2 dark:bg-slate-900 dark:border-slate-800"
+                              value={editForm.support}
+                              onChange={e => setEditForm({ ...editForm, support: e.target.value })}
+                            >
+                              <option value="Course à pied">Course à pied</option>
+                              <option value="Vélo">Vélo / Cyclisme</option>
+                              <option value="Natation">Natation</option>
+                              <option value="Renforcement">Renforcement musculaire</option>
+                              <option value="Autre">Autre (préciser dans le souhait)</option>
+                            </select>
+                          </div>
+                          <div className="space-y-2">
+                            <Label className="text-xs text-slate-500 font-semibold">Votre souhait pour {session.jour} :</Label>
+                            <Textarea 
+                              value={editForm.wish} 
+                              onChange={e => setEditForm({ ...editForm, wish: e.target.value })} 
+                              placeholder="Ex: Je veux faire une sortie longue de 20km, ou Repos forcé..."
+                              rows={2}
+                              className="text-sm resize-none"
+                            />
+                          </div>
+                          <div className="flex gap-2 justify-end pt-2">
                             <Button variant="ghost" size="sm" onClick={() => setEditingIndex(null)} className="h-8 text-xs">
                               <X className="w-3 h-3 mr-1" /> Annuler
                             </Button>
@@ -563,6 +645,11 @@ Réponds exclusivement par un tableau JSON, sans texte superflu :
                               <Badge variant="outline" className={`font-medium border ${getTypeColor(session.type)}`}>
                                 {session.type}
                               </Badge>
+                              {session.support && session.support !== 'Course à pied' && (
+                                <Badge variant="secondary" className="bg-teal-100 text-teal-700 border-teal-200 dark:bg-teal-900/30 dark:text-teal-400 dark:border-teal-800 text-xs">
+                                  {session.support}
+                                </Badge>
+                              )}
                               {session.userWish && (
                                 <Badge variant="secondary" className="bg-purple-100 text-purple-700 border-purple-200 dark:bg-purple-900/30 dark:text-purple-400 dark:border-purple-800 text-xs">
                                   Souhait: {session.userWish}
@@ -576,6 +663,22 @@ Réponds exclusivement par un tableau JSON, sans texte superflu :
                           <p className="text-slate-600 dark:text-slate-300 text-sm leading-relaxed">
                             {session.desc}
                           </p>
+                          {session.logic && (
+                            <div className="mt-3 p-3 bg-slate-50 dark:bg-slate-900/50 rounded-lg border border-slate-100 dark:border-slate-800">
+                              <p className="text-sm text-slate-600 dark:text-slate-400 flex items-start gap-2">
+                                <Lightbulb className="w-4 h-4 shrink-0 text-amber-500 mt-0.5" />
+                                <span>{session.logic}</span>
+                              </p>
+                            </div>
+                          )}
+                          {session.coherenceWarning && (
+                            <div className="mt-2 p-3 bg-red-50 dark:bg-red-900/20 rounded-lg border border-red-100 dark:border-red-800/50">
+                              <p className="text-sm text-red-700 dark:text-red-400 flex items-start gap-2">
+                                <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                                <span><strong>Attention :</strong> {session.coherenceWarning}</span>
+                              </p>
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
