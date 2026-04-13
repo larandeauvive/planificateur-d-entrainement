@@ -13,6 +13,12 @@ import { auth, db } from './firebase';
 import { onAuthStateChanged, User, signInAnonymously } from 'firebase/auth';
 import { collection, doc, setDoc, deleteDoc, onSnapshot, query, where, getDoc, updateDoc, arrayUnion } from 'firebase/firestore';
 
+const parseDate = (dateStr: string) => {
+  if (!dateStr) return new Date();
+  const [y, m, d] = dateStr.split('-').map(Number);
+  return new Date(y, m - 1, d, 12, 0, 0);
+};
+
 const getStartOfWeek = (d: Date) => {
   const date = new Date(d);
   const day = date.getDay();
@@ -38,7 +44,7 @@ const addDays = (d: Date, days: number) => {
 const getWeekDays = (start: Date) => Array.from({length: 7}).map((_, i) => formatDate(addDays(start, i)));
 
 const formatDisplayDate = (dateStr: string) => {
-  const d = new Date(dateStr);
+  const d = parseDate(dateStr);
   return d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'short' });
 };
 
@@ -100,7 +106,7 @@ interface UserProfile {
 }
 
 const generateDefaultPlan = (startDateStr: string): TrainingSession[] => {
-  const start = new Date(startDateStr);
+  const start = parseDate(startDateStr);
   const days = getWeekDays(start);
   const types = ['Repos', 'EF', 'Repos', 'VMA', 'Repos', 'EF', 'Sortie Longue'];
   const descs = ['Récupération', 'Endurance Fondamentale 45min', 'Récupération', 'Échauffement 20min + 10x400m + Retour au calme 10min', 'Récupération', 'Endurance Fondamentale 1h', 'Sortie Longue 1h30'];
@@ -225,9 +231,8 @@ export default function App() {
 
   const updateProfile = async (updates: Partial<UserProfile>) => {
     if (!activeProfile || !user) return;
-    const updatedProfile = { ...activeProfile, ...updates };
     try {
-      await setDoc(doc(db, 'profiles', activeProfile.id), updatedProfile);
+      await updateDoc(doc(db, 'profiles', activeProfile.id), updates);
     } catch (err) {
       console.error(err);
       setError("Erreur lors de la sauvegarde.");
@@ -342,13 +347,18 @@ export default function App() {
         }
       };
       await updateProfile({ plan: newPlan });
+      setFeedbackDate(null);
+      
+      // On relance la génération pour adapter le reste de la semaine suite au bilan
+      await generatePlan(newPlan, currentWeekStart);
+    } else {
+      setFeedbackDate(null);
     }
-    setFeedbackDate(null);
   };
 
   const downloadPlan = () => {
     if (!activeProfile) return;
-    const weekDates = getWeekDays(new Date(currentWeekStart));
+    const weekDates = getWeekDays(parseDate(currentWeekStart));
     const weekSessions = weekDates.map(date => activeProfile.plan.find(s => s.date === date) || { date, type: 'Repos', desc: 'Aucune séance prévue.' } as TrainingSession);
     
     const textContent = `Programme d'entraînement - ${activeProfile.name} (Semaine du ${formatDisplayDate(currentWeekStart)})\n\n` +
@@ -369,7 +379,7 @@ export default function App() {
     setLoading(true);
     setError(null);
     try {
-      const weekDates = getWeekDays(new Date(targetWeekStart));
+      const weekDates = getWeekDays(parseDate(targetWeekStart));
       const currentWeekSessions = weekDates.map(date => planToAdapt.find(s => s.date === date) || { date, type: 'Repos', desc: '', locked: false });
 
       const coursesText = `
@@ -465,10 +475,18 @@ Réponds exclusivement par un tableau JSON de 7 éléments (un pour chaque date 
         const generatedPlan = JSON.parse(response.text);
         
         // Réinjecter les données utilisateur (souhaits, bilans) qui ne doivent pas être perdues
-        const newPlan = generatedPlan.map((session: any) => {
-          const originalSession = planToAdapt.find(s => s.date === session.date);
+        const newPlan = generatedPlan.map((session: any, index: number) => {
+          const date = weekDates[index] || session.date; // Sécurité : forcer la date
+          const originalSession = planToAdapt.find(s => s.date === date);
+          
+          // Ne jamais écraser une séance verrouillée ou déjà complétée
+          if (originalSession?.locked || originalSession?.isCompleted) {
+            return originalSession;
+          }
+          
           return {
             ...session,
+            date: date,
             userWish: originalSession?.userWish || '',
             support: session.support || originalSession?.support || 'Course à pied',
             isCompleted: originalSession?.isCompleted || false,
@@ -501,7 +519,7 @@ Réponds exclusivement par un tableau JSON de 7 éléments (un pour chaque date 
     return 'bg-gray-100 text-gray-700 border-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700';
   };
 
-  const weekDates = getWeekDays(new Date(currentWeekStart));
+  const weekDates = getWeekDays(parseDate(currentWeekStart));
   const weekSessions = weekDates.map(date => activeProfile?.plan.find(s => s.date === date) || { date, type: 'Repos', desc: 'Aucune séance prévue. Cliquez sur Recalculer pour générer cette semaine.', locked: false, support: 'Course à pied' } as TrainingSession);
 
   const activeSessionsCount = weekSessions.filter(s => !s.type.toLowerCase().includes('repos') && s.desc !== 'Aucune séance prévue. Cliquez sur Recalculer pour générer cette semaine.').length;
@@ -654,13 +672,13 @@ Réponds exclusivement par un tableau JSON de 7 éléments (un pour chaque date 
 
             {/* Weekly Plan */}
             <div className="flex items-center justify-between bg-white dark:bg-slate-900 p-2 rounded-lg border border-slate-200 dark:border-slate-800 shadow-sm mb-4">
-              <Button variant="ghost" size="sm" onClick={() => setCurrentWeekStart(formatDate(addDays(new Date(currentWeekStart), -7)))}>
+              <Button variant="ghost" size="sm" onClick={() => setCurrentWeekStart(formatDate(addDays(parseDate(currentWeekStart), -7)))}>
                 <ChevronLeft className="w-4 h-4 mr-1" /> Précédent
               </Button>
               <span className="font-semibold text-slate-700 dark:text-slate-200 capitalize">
-                Semaine du {new Date(currentWeekStart).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })}
+                Semaine du {parseDate(currentWeekStart).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })}
               </span>
-              <Button variant="ghost" size="sm" onClick={() => setCurrentWeekStart(formatDate(addDays(new Date(currentWeekStart), 7)))}>
+              <Button variant="ghost" size="sm" onClick={() => setCurrentWeekStart(formatDate(addDays(parseDate(currentWeekStart), 7)))}>
                 Suivant <ChevronRight className="w-4 h-4 ml-1" />
               </Button>
             </div>
