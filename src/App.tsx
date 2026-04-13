@@ -8,10 +8,39 @@ import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Lock, Unlock, Loader2, Calendar, Settings2, Activity, Trophy, Flame, Mountain, Dumbbell, Plus, Trash2, Download, Users, UserPlus, History, Clock, Pencil, Check, X, Lightbulb, AlertTriangle, RefreshCw, MessageSquare, Share2 } from 'lucide-react';
+import { Lock, Unlock, Loader2, Calendar, Settings2, Activity, Trophy, Flame, Mountain, Dumbbell, Plus, Trash2, Download, Users, UserPlus, History, Clock, Pencil, Check, X, Lightbulb, AlertTriangle, RefreshCw, MessageSquare, Share2, ChevronLeft, ChevronRight } from 'lucide-react';
 import { auth, db } from './firebase';
 import { onAuthStateChanged, User, signInAnonymously } from 'firebase/auth';
 import { collection, doc, setDoc, deleteDoc, onSnapshot, query, where, getDoc, updateDoc, arrayUnion } from 'firebase/firestore';
+
+const getStartOfWeek = (d: Date) => {
+  const date = new Date(d);
+  const day = date.getDay();
+  const diff = date.getDate() - day + (day === 0 ? -6 : 1);
+  date.setDate(diff);
+  date.setHours(0, 0, 0, 0);
+  return date;
+};
+
+const formatDate = (d: Date) => {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const addDays = (d: Date, days: number) => {
+  const date = new Date(d);
+  date.setDate(date.getDate() + days);
+  return date;
+};
+
+const getWeekDays = (start: Date) => Array.from({length: 7}).map((_, i) => formatDate(addDays(start, i)));
+
+const formatDisplayDate = (dateStr: string) => {
+  const d = new Date(dateStr);
+  return d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'short' });
+};
 
 let aiClient: GoogleGenAI | null = null;
 const getAI = () => {
@@ -26,7 +55,7 @@ const getAI = () => {
 };
 
 interface TrainingSession {
-  jour: string;
+  date: string;
   type: string;
   desc: string;
   locked: boolean;
@@ -70,15 +99,20 @@ interface UserProfile {
   plan: TrainingSession[];
 }
 
-const defaultPlan: TrainingSession[] = [
-  { jour: 'Lundi', type: 'Repos', desc: 'Récupération', locked: false, support: 'Course à pied', logic: 'Le repos est essentiel après la sortie longue du dimanche pour assimiler le travail.' },
-  { jour: 'Mardi', type: 'EF', desc: 'Endurance Fondamentale 45min', locked: false, support: 'Course à pied', logic: 'Reprise en douceur pour faire circuler le sang et travailler la base aérobie.' },
-  { jour: 'Mercredi', type: 'Repos', desc: 'Récupération', locked: false, support: 'Course à pied', logic: 'Repos avant la grosse séance d\'intensité de la semaine.' },
-  { jour: 'Jeudi', type: 'VMA', desc: 'Échauffement 20min + 10x400m + Retour au calme 10min', locked: false, support: 'Course à pied', logic: 'Développement de la Vitesse Maximale Aérobie pour progresser en vitesse.' },
-  { jour: 'Vendredi', type: 'Repos', desc: 'Récupération', locked: false, support: 'Course à pied', logic: 'Assimilation de la séance de VMA.' },
-  { jour: 'Samedi', type: 'EF', desc: 'Endurance Fondamentale 1h', locked: false, support: 'Course à pied', logic: 'Pré-fatigue en douceur avant la sortie longue du lendemain.' },
-  { jour: 'Dimanche', type: 'Sortie Longue', desc: 'Sortie Longue 1h30', locked: false, support: 'Course à pied', logic: 'Travail de l\'endurance spécifique et de la résistance musculaire.' },
-];
+const generateDefaultPlan = (startDateStr: string): TrainingSession[] => {
+  const start = new Date(startDateStr);
+  const days = getWeekDays(start);
+  const types = ['Repos', 'EF', 'Repos', 'VMA', 'Repos', 'EF', 'Sortie Longue'];
+  const descs = ['Récupération', 'Endurance Fondamentale 45min', 'Récupération', 'Échauffement 20min + 10x400m + Retour au calme 10min', 'Récupération', 'Endurance Fondamentale 1h', 'Sortie Longue 1h30'];
+  return days.map((date, i) => ({
+    date,
+    type: types[i],
+    desc: descs[i],
+    locked: false,
+    support: 'Course à pied',
+    logic: 'Séance de base.'
+  }));
+};
 
 const generateShortId = () => Math.random().toString(36).substring(2, 8).toUpperCase();
 
@@ -91,7 +125,7 @@ const defaultProfile = (userId: string): UserProfile => ({
   secondaryGoals: [{ id: '1', name: 'Semi-marathon de préparation', date: '2026-06-10', distance: 21, elevation: 200 }],
   pastRaces: [],
   isAffutage: false,
-  plan: defaultPlan
+  plan: generateDefaultPlan(formatDate(getStartOfWeek(new Date())))
 });
 
 export default function App() {
@@ -102,8 +136,9 @@ export default function App() {
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<string>('dashboard');
-  const [editingIndex, setEditingIndex] = useState<number | null>(null);
-  const [feedbackIndex, setFeedbackIndex] = useState<number | null>(null);
+  const [currentWeekStart, setCurrentWeekStart] = useState<string>(formatDate(getStartOfWeek(new Date())));
+  const [editingDate, setEditingDate] = useState<string | null>(null);
+  const [feedbackDate, setFeedbackDate] = useState<string | null>(null);
   const [editForm, setEditForm] = useState({ wish: '', support: 'Course à pied' });
   const [feedbackForm, setFeedbackForm] = useState({ rpe: 5, comment: '' });
 
@@ -133,7 +168,18 @@ export default function App() {
 
     const q = query(collection(db, 'profiles'), where('linkedUids', 'array-contains', user.uid));
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const loadedProfiles = snapshot.docs.map(doc => doc.data() as UserProfile);
+      const loadedProfiles = snapshot.docs.map(doc => {
+        const data = doc.data() as any;
+        // Migration: si le plan contient "jour" au lieu de "date", on le convertit vers la semaine courante
+        if (data.plan && data.plan.length > 0 && data.plan[0].jour && !data.plan[0].date) {
+          const start = getStartOfWeek(new Date());
+          data.plan = data.plan.map((s: any, i: number) => {
+            const { jour, ...rest } = s;
+            return { ...rest, date: formatDate(addDays(start, i)) };
+          });
+        }
+        return data as UserProfile;
+      });
       
       if (loadedProfiles.length === 0) {
         // Create default profile if none exists
@@ -234,73 +280,98 @@ export default function App() {
     }
   };
 
-  const toggleLock = (index: number) => {
+  const toggleLock = (date: string) => {
     if (!activeProfile) return;
     const newPlan = [...activeProfile.plan];
-    newPlan[index].locked = !newPlan[index].locked;
-    updateProfile({ plan: newPlan });
+    const index = newPlan.findIndex(s => s.date === date);
+    if (index >= 0) {
+      newPlan[index].locked = !newPlan[index].locked;
+      updateProfile({ plan: newPlan });
+    }
   };
 
-  const startEdit = (index: number) => {
+  const startEdit = (date: string) => {
     if (!activeProfile) return;
-    setEditingIndex(index);
+    setEditingDate(date);
+    const session = activeProfile.plan.find(s => s.date === date);
     setEditForm({
-      wish: activeProfile.plan[index].userWish || '',
-      support: activeProfile.plan[index].support || 'Course à pied'
+      wish: session?.userWish || '',
+      support: session?.support || 'Course à pied'
     });
   };
 
-  const saveEdit = async (index: number) => {
+  const saveEdit = async (date: string) => {
     if (!activeProfile) return;
     const newPlan = [...activeProfile.plan];
-    newPlan[index] = {
-      ...newPlan[index],
-      userWish: editForm.wish,
-      support: editForm.support,
-      locked: false // On déverrouille pour que l'IA puisse formater la séance selon le souhait
-    };
+    const index = newPlan.findIndex(s => s.date === date);
+    if (index >= 0) {
+      newPlan[index] = {
+        ...newPlan[index],
+        userWish: editForm.wish,
+        support: editForm.support,
+        locked: false // On déverrouille pour que l'IA puisse formater la séance selon le souhait
+      };
+    } else {
+      newPlan.push({
+        date,
+        type: 'Repos',
+        desc: '',
+        locked: false,
+        userWish: editForm.wish,
+        support: editForm.support
+      });
+    }
     await updateProfile({ plan: newPlan });
-    setEditingIndex(null);
+    setEditingDate(null);
     
     // On relance la génération pour adapter le reste de la semaine
-    await generatePlan(newPlan);
+    await generatePlan(newPlan, currentWeekStart);
   };
 
-  const saveFeedback = async (index: number) => {
+  const saveFeedback = async (date: string) => {
     if (!activeProfile) return;
     const newPlan = [...activeProfile.plan];
-    newPlan[index] = {
-      ...newPlan[index],
-      isCompleted: true,
-      feedback: {
-        rpe: feedbackForm.rpe,
-        comment: feedbackForm.comment
-      }
-    };
-    await updateProfile({ plan: newPlan });
-    setFeedbackIndex(null);
+    const index = newPlan.findIndex(s => s.date === date);
+    if (index >= 0) {
+      newPlan[index] = {
+        ...newPlan[index],
+        isCompleted: true,
+        feedback: {
+          rpe: feedbackForm.rpe,
+          comment: feedbackForm.comment
+        }
+      };
+      await updateProfile({ plan: newPlan });
+    }
+    setFeedbackDate(null);
   };
 
   const downloadPlan = () => {
     if (!activeProfile) return;
-    const textContent = `Programme d'entraînement - ${activeProfile.name}\n\n` +
-      activeProfile.plan.map(s => `${s.jour} : ${s.type}\n${s.desc}\n`).join('\n');
+    const weekDates = getWeekDays(new Date(currentWeekStart));
+    const weekSessions = weekDates.map(date => activeProfile.plan.find(s => s.date === date) || { date, type: 'Repos', desc: 'Aucune séance prévue.' } as TrainingSession);
+    
+    const textContent = `Programme d'entraînement - ${activeProfile.name} (Semaine du ${formatDisplayDate(currentWeekStart)})\n\n` +
+      weekSessions.map(s => `${formatDisplayDate(s.date)} : ${s.type}\n${s.desc}\n`).join('\n');
     const blob = new Blob([textContent], { type: 'text/plain;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `planning-${activeProfile.name.replace(/\s+/g, '-').toLowerCase()}.txt`;
+    link.download = `planning-${activeProfile.name.replace(/\s+/g, '-').toLowerCase()}-${currentWeekStart}.txt`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
   };
 
-  const generatePlan = async (planToAdapt: TrainingSession[] = activeProfile?.plan || []) => {
+  const generatePlan = async (planToAdapt: TrainingSession[] = activeProfile?.plan || [], targetWeekStart: string = currentWeekStart) => {
     if (!activeProfile) return;
     setLoading(true);
     setError(null);
     try {
+      const weekDates = getWeekDays(new Date(targetWeekStart));
+      const currentWeekSessions = weekDates.map(date => planToAdapt.find(s => s.date === date) || { date, type: 'Repos', desc: '', locked: false });
+
       const coursesText = `
 Objectifs Majeurs (A) :
 ${activeProfile.mainGoals.length > 0 ? activeProfile.mainGoals.map(g => `- ${g.name || 'Non défini'} prévu le ${g.date || 'Non défini'} - Distance: ${g.distance || 0}km, Dénivelé: ${g.elevation || 0}m D+`).join('\n') : 'Aucun'}
@@ -318,7 +389,7 @@ ${activeProfile.secondaryGoals.length > 0 ? activeProfile.secondaryGoals.map(g =
 - ROLE: Coach Expert en Endurance (Route, Trail, Ultra-Trail)
 
 ### MISSION
-Tu es l'intelligence centrale d'un logiciel de planification. Tu dois générer des entraînements hebdomadaires basés sur les objectifs et l'historique du coureur.
+Tu es l'intelligence centrale d'un logiciel de planification. Tu dois générer des entraînements pour les 7 jours de la semaine du ${weekDates[0]} au ${weekDates[6]}.
 
 ### EXPERTISE ROUTE & ULTRA-TRAIL
 1. ROUTE (5km au Marathon) : Travail de VMA, seuil anaérobie, et allures cibles (AS10, AS21, AS42).
@@ -332,7 +403,7 @@ ${pastRacesText}
 
 ### RETOURS SUR LES SÉANCES PASSÉES (BILAN)
 Prends en compte ces retours pour adapter la suite de la semaine (ex: si RPE élevé > 8, allège la suite) :
-${activeProfile.plan.filter(s => s.isCompleted && s.feedback).map(s => `- ${s.jour} (${s.type}) : Difficulté ressentie (RPE) = ${s.feedback?.rpe}/10. Commentaire : "${s.feedback?.comment}"`).join('\n') || 'Aucun bilan récent.'}
+${planToAdapt.filter(s => s.isCompleted && s.feedback).slice(-10).map(s => `- ${s.date} (${s.type}) : Difficulté ressentie (RPE) = ${s.feedback?.rpe}/10. Commentaire : "${s.feedback?.comment}"`).join('\n') || 'Aucun bilan récent.'}
 
 ### LOGIQUE D'ADAPTATION (PARAMÈTRES)
 - "nbSeances" : ${activeProfile.nbSeances}
@@ -347,14 +418,14 @@ Dans le planning actuel fourni, certaines journées contiennent un champ "userWi
 - Tu dois ensuite adapter intelligemment le reste de la semaine autour de ces contraintes.
 - Si le souhait de l'utilisateur te semble incohérent ou risqué par rapport à la logique d'entraînement (ex: placer une sortie longue la veille d'une course, ou ne pas respecter de repos après une grosse séance), tu DOIS remplir le champ "coherenceWarning" pour l'avertir, tout en appliquant quand même son souhait.
 
-### PLANNING ACTUEL (à adapter)
-${JSON.stringify(planToAdapt, null, 2)}
+### PLANNING ACTUEL DE CETTE SEMAINE (à adapter)
+${JSON.stringify(currentWeekSessions, null, 2)}
 
 ### FORMAT DE SORTIE (STRICT JSON)
-Réponds exclusivement par un tableau JSON, sans texte superflu :
+Réponds exclusivement par un tableau JSON de 7 éléments (un pour chaque date demandée) :
 [
   {
-    "jour": "Lundi",
+    "date": "YYYY-MM-DD",
     "type": "Repos | EF | VMA | Seuil | Côtes | Sortie Longue | Rando-course | Croisé | Renforcement",
     "support": "Course à pied | Vélo | Natation | Renforcement | Autre",
     "desc": "Description détaillée (Durée, Intensité, D+)",
@@ -376,7 +447,7 @@ Réponds exclusivement par un tableau JSON, sans texte superflu :
             items: {
               type: Type.OBJECT,
               properties: {
-                jour: { type: Type.STRING },
+                date: { type: Type.STRING },
                 type: { type: Type.STRING },
                 support: { type: Type.STRING },
                 desc: { type: Type.STRING },
@@ -384,7 +455,7 @@ Réponds exclusivement par un tableau JSON, sans texte superflu :
                 coherenceWarning: { type: Type.STRING },
                 locked: { type: Type.BOOLEAN },
               },
-              required: ['jour', 'type', 'support', 'desc', 'logic', 'locked'],
+              required: ['date', 'type', 'support', 'desc', 'logic', 'locked'],
             },
           },
         },
@@ -392,9 +463,10 @@ Réponds exclusivement par un tableau JSON, sans texte superflu :
 
       if (response.text) {
         const generatedPlan = JSON.parse(response.text);
-        // On réinjecte les souhaits (userWish) pour ne pas les perdre lors des prochaines générations
+        
+        // Réinjecter les données utilisateur (souhaits, bilans) qui ne doivent pas être perdues
         const newPlan = generatedPlan.map((session: any) => {
-          const originalSession = planToAdapt.find(s => s.jour === session.jour);
+          const originalSession = planToAdapt.find(s => s.date === session.date);
           return {
             ...session,
             userWish: originalSession?.userWish || '',
@@ -403,7 +475,13 @@ Réponds exclusivement par un tableau JSON, sans texte superflu :
             feedback: originalSession?.feedback
           };
         });
-        updateProfile({ plan: newPlan });
+        
+        // Fusionner le nouveau plan de la semaine avec le plan global
+        const generatedDates = newPlan.map((s: any) => s.date);
+        const filteredPlan = planToAdapt.filter(s => !generatedDates.includes(s.date));
+        const finalPlan = [...filteredPlan, ...newPlan];
+        
+        updateProfile({ plan: finalPlan });
         setActiveTab('dashboard');
       }
     } catch (err: any) {
@@ -423,9 +501,12 @@ Réponds exclusivement par un tableau JSON, sans texte superflu :
     return 'bg-gray-100 text-gray-700 border-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700';
   };
 
-  const activeSessionsCount = activeProfile?.plan.filter(s => !s.type.toLowerCase().includes('repos')).length || 0;
-  const intenseCount = activeProfile?.plan.filter(s => s.type.toLowerCase().match(/vma|seuil|côte|cote/)).length || 0;
-  const longCount = activeProfile?.plan.filter(s => s.type.toLowerCase().match(/longue|rando/)).length || 0;
+  const weekDates = getWeekDays(new Date(currentWeekStart));
+  const weekSessions = weekDates.map(date => activeProfile?.plan.find(s => s.date === date) || { date, type: 'Repos', desc: 'Aucune séance prévue. Cliquez sur Recalculer pour générer cette semaine.', locked: false, support: 'Course à pied' } as TrainingSession);
+
+  const activeSessionsCount = weekSessions.filter(s => !s.type.toLowerCase().includes('repos') && s.desc !== 'Aucune séance prévue. Cliquez sur Recalculer pour générer cette semaine.').length;
+  const intenseCount = weekSessions.filter(s => s.type.toLowerCase().match(/vma|seuil|côte|cote/)).length;
+  const longCount = weekSessions.filter(s => s.type.toLowerCase().match(/longue|rando/)).length;
 
   if (error && (!isAuthReady || !activeProfile)) {
     return (
@@ -572,6 +653,18 @@ Réponds exclusivement par un tableau JSON, sans texte superflu :
             </div>
 
             {/* Weekly Plan */}
+            <div className="flex items-center justify-between bg-white dark:bg-slate-900 p-2 rounded-lg border border-slate-200 dark:border-slate-800 shadow-sm mb-4">
+              <Button variant="ghost" size="sm" onClick={() => setCurrentWeekStart(formatDate(addDays(new Date(currentWeekStart), -7)))}>
+                <ChevronLeft className="w-4 h-4 mr-1" /> Précédent
+              </Button>
+              <span className="font-semibold text-slate-700 dark:text-slate-200 capitalize">
+                Semaine du {new Date(currentWeekStart).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })}
+              </span>
+              <Button variant="ghost" size="sm" onClick={() => setCurrentWeekStart(formatDate(addDays(new Date(currentWeekStart), 7)))}>
+                Suivant <ChevronRight className="w-4 h-4 ml-1" />
+              </Button>
+            </div>
+
             <Card className="border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
               <CardHeader className="bg-slate-50/50 dark:bg-slate-900/20 border-b border-slate-100 dark:border-slate-800/50 pb-4">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -580,7 +673,7 @@ Réponds exclusivement par un tableau JSON, sans texte superflu :
                     <CardDescription>Plan personnalisé pour {activeProfile.name}.</CardDescription>
                   </div>
                   <div className="flex items-center gap-2">
-                    <Button variant="default" size="sm" onClick={() => generatePlan()} disabled={loading} className="bg-blue-600 hover:bg-blue-700 text-white">
+                    <Button variant="default" size="sm" onClick={() => generatePlan(activeProfile.plan, currentWeekStart)} disabled={loading} className="bg-blue-600 hover:bg-blue-700 text-white">
                       {loading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <RefreshCw className="w-4 h-4 mr-2" />}
                       Recalculer
                     </Button>
@@ -597,19 +690,19 @@ Réponds exclusivement par un tableau JSON, sans texte superflu :
               </CardHeader>
               <CardContent className="p-0">
                 <div className="divide-y divide-slate-100 dark:divide-slate-800/50">
-                  {activeProfile.plan.map((session, index) => (
+                  {weekSessions.map((session, index) => (
                     <div 
-                      key={index} 
+                      key={session.date} 
                       className={`p-4 sm:p-5 flex flex-col sm:flex-row gap-4 transition-colors hover:bg-slate-50/50 dark:hover:bg-slate-900/50 ${session.locked ? 'bg-slate-50 dark:bg-slate-900/20' : ''}`}
                     >
                       {/* Day & Lock */}
                       <div className="sm:w-32 flex items-center sm:items-start justify-between sm:flex-col gap-2 shrink-0">
-                        <span className="font-bold text-slate-700 dark:text-slate-200">{session.jour}</span>
+                        <span className="font-bold text-slate-700 dark:text-slate-200 capitalize">{formatDisplayDate(session.date)}</span>
                         <Button 
                           variant="ghost" 
                           size="sm" 
                           className={`h-8 px-2 text-xs ${session.locked ? 'text-amber-600 hover:text-amber-700 hover:bg-amber-50 dark:text-amber-500 dark:hover:bg-amber-950/50' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'}`}
-                          onClick={() => toggleLock(index)}
+                          onClick={() => toggleLock(session.date)}
                         >
                           {session.locked ? (
                             <><Lock className="w-3 h-3 mr-1" /> Verrouillé</>
@@ -620,7 +713,7 @@ Réponds exclusivement par un tableau JSON, sans texte superflu :
                       </div>
 
                       {/* Content */}
-                      {editingIndex === index ? (
+                      {editingDate === session.date ? (
                         <div className="flex-1 space-y-4 bg-white dark:bg-slate-950 p-4 rounded-lg border border-slate-200 dark:border-slate-800 shadow-sm">
                           <div className="space-y-2">
                             <Label className="text-xs text-slate-500 font-semibold">Type de support :</Label>
@@ -637,7 +730,7 @@ Réponds exclusivement par un tableau JSON, sans texte superflu :
                             </select>
                           </div>
                           <div className="space-y-2">
-                            <Label className="text-xs text-slate-500 font-semibold">Votre souhait pour {session.jour} :</Label>
+                            <Label className="text-xs text-slate-500 font-semibold">Votre souhait pour le {formatDisplayDate(session.date)} :</Label>
                             <Textarea 
                               value={editForm.wish} 
                               onChange={e => setEditForm({ ...editForm, wish: e.target.value })} 
@@ -647,10 +740,10 @@ Réponds exclusivement par un tableau JSON, sans texte superflu :
                             />
                           </div>
                           <div className="flex gap-2 justify-end pt-2">
-                            <Button variant="ghost" size="sm" onClick={() => setEditingIndex(null)} className="h-8 text-xs">
+                            <Button variant="ghost" size="sm" onClick={() => setEditingDate(null)} className="h-8 text-xs">
                               <X className="w-3 h-3 mr-1" /> Annuler
                             </Button>
-                            <Button variant="default" size="sm" onClick={() => saveEdit(index)} className="h-8 text-xs bg-blue-600 hover:bg-blue-700 text-white">
+                            <Button variant="default" size="sm" onClick={() => saveEdit(session.date)} className="h-8 text-xs bg-blue-600 hover:bg-blue-700 text-white">
                               <Check className="w-3 h-3 mr-1" /> Adapter la semaine
                             </Button>
                           </div>
@@ -673,7 +766,7 @@ Réponds exclusivement par un tableau JSON, sans texte superflu :
                                 </Badge>
                               )}
                             </div>
-                            <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-400 hover:text-blue-600 dark:hover:text-blue-400" onClick={() => startEdit(index)} title="Émettre un souhait pour ce jour">
+                            <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-400 hover:text-blue-600 dark:hover:text-blue-400" onClick={() => startEdit(session.date)} title="Émettre un souhait pour ce jour">
                               <Pencil className="w-4 h-4" />
                             </Button>
                           </div>
@@ -710,7 +803,7 @@ Réponds exclusivement par un tableau JSON, sans texte superflu :
                                   <p className="text-sm text-slate-600 dark:text-slate-400 mt-2 italic">"{session.feedback.comment}"</p>
                                 )}
                               </div>
-                            ) : feedbackIndex === index ? (
+                            ) : feedbackDate === session.date ? (
                               <div className="bg-white dark:bg-slate-950 p-3 rounded-lg border border-blue-200 dark:border-blue-900/50 shadow-sm space-y-3">
                                 <div>
                                   <Label className="text-xs text-slate-500 font-semibold mb-1 block">Difficulté ressentie (RPE 1-10) :</Label>
@@ -736,16 +829,16 @@ Réponds exclusivement par un tableau JSON, sans texte superflu :
                                   />
                                 </div>
                                 <div className="flex gap-2 justify-end">
-                                  <Button variant="ghost" size="sm" onClick={() => setFeedbackIndex(null)} className="h-8 text-xs">
+                                  <Button variant="ghost" size="sm" onClick={() => setFeedbackDate(null)} className="h-8 text-xs">
                                     Annuler
                                   </Button>
-                                  <Button variant="default" size="sm" onClick={() => saveFeedback(index)} className="h-8 text-xs bg-green-600 hover:bg-green-700 text-white">
+                                  <Button variant="default" size="sm" onClick={() => saveFeedback(session.date)} className="h-8 text-xs bg-green-600 hover:bg-green-700 text-white">
                                     <Check className="w-3 h-3 mr-1" /> Valider le bilan
                                   </Button>
                                 </div>
                               </div>
                             ) : (
-                              <Button variant="ghost" size="sm" onClick={() => { setFeedbackIndex(index); setFeedbackForm({ rpe: 5, comment: '' }); }} className="text-xs text-slate-500 hover:text-blue-600">
+                              <Button variant="ghost" size="sm" onClick={() => { setFeedbackDate(session.date); setFeedbackForm({ rpe: 5, comment: '' }); }} className="text-xs text-slate-500 hover:text-blue-600">
                                 <MessageSquare className="w-3 h-3 mr-1" /> Faire le bilan de la séance
                               </Button>
                             )}

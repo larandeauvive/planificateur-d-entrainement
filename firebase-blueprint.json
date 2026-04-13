@@ -5,7 +5,7 @@
       "description": "A single training session in a plan.",
       "type": "object",
       "properties": {
-        "jour": { "type": "string" },
+        "date": { "type": "string" },
         "type": { "type": "string" },
         "desc": { "type": "string" },
         "locked": { "type": "boolean" },
@@ -21,7 +21,7 @@
           }
         }
       },
-      "required": ["jour", "type", "desc", "locked"]
+      "required": ["date", "type", "desc", "locked"]
     },
     "Goal": {
       "title": "Goal",
