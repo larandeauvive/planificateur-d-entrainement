@@ -42,6 +42,7 @@ const addDays = (d: Date, days: number) => {
 };
 
 const getWeekDays = (start: Date) => Array.from({length: 7}).map((_, i) => formatDate(addDays(start, i)));
+const getTwoWeeksDays = (start: Date) => Array.from({length: 14}).map((_, i) => formatDate(addDays(start, i)));
 
 const formatDisplayDate = (dateStr: string) => {
   const d = parseDate(dateStr);
@@ -358,11 +359,11 @@ export default function App() {
 
   const downloadPlan = () => {
     if (!activeProfile) return;
-    const weekDates = getWeekDays(parseDate(currentWeekStart));
-    const weekSessions = weekDates.map(date => activeProfile.plan.find(s => s.date === date) || { date, type: 'Repos', desc: 'Aucune séance prévue.' } as TrainingSession);
+    const downloadDates = getTwoWeeksDays(parseDate(currentWeekStart));
+    const downloadSessions = downloadDates.map(date => activeProfile.plan.find(s => s.date === date) || { date, type: 'Repos', desc: 'Aucune séance prévue.' } as TrainingSession);
     
-    const textContent = `Programme d'entraînement - ${activeProfile.name} (Semaine du ${formatDisplayDate(currentWeekStart)})\n\n` +
-      weekSessions.map(s => `${formatDisplayDate(s.date)} : ${s.type}\n${s.desc}\n`).join('\n');
+    const textContent = `Programme d'entraînement - ${activeProfile.name} (Quinzaine du ${formatDisplayDate(currentWeekStart)})\n\n` +
+      downloadSessions.map(s => `${formatDisplayDate(s.date)} : ${s.type}\n${s.desc}\n`).join('\n');
     const blob = new Blob([textContent], { type: 'text/plain;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -379,8 +380,8 @@ export default function App() {
     setLoading(true);
     setError(null);
     try {
-      const weekDates = getWeekDays(parseDate(targetWeekStart));
-      const currentWeekSessions = weekDates.map(date => planToAdapt.find(s => s.date === date) || { date, type: 'Repos', desc: '', locked: false });
+      const generationDates = getTwoWeeksDays(parseDate(targetWeekStart));
+      const currentSessions = generationDates.map(date => planToAdapt.find(s => s.date === date) || { date, type: 'Repos', desc: '', locked: false });
 
       const coursesText = `
 Objectifs Majeurs (A) :
@@ -399,7 +400,7 @@ ${activeProfile.secondaryGoals.length > 0 ? activeProfile.secondaryGoals.map(g =
 - ROLE: Coach Expert en Endurance (Route, Trail, Ultra-Trail)
 
 ### MISSION
-Tu es l'intelligence centrale d'un logiciel de planification. Tu dois générer des entraînements pour les 7 jours de la semaine du ${weekDates[0]} au ${weekDates[6]}.
+Tu es l'intelligence centrale d'un logiciel de planification. Tu dois générer des entraînements pour les 14 jours du ${generationDates[0]} au ${generationDates[13]}.
 
 ### EXPERTISE ROUTE & ULTRA-TRAIL
 1. ROUTE (5km au Marathon) : Travail de VMA, seuil anaérobie, et allures cibles (AS10, AS21, AS42).
@@ -416,7 +417,7 @@ Prends en compte ces retours pour adapter la suite de la semaine (ex: si RPE él
 ${planToAdapt.filter(s => s.isCompleted && s.feedback).slice(-10).map(s => `- ${s.date} (${s.type}) : Difficulté ressentie (RPE) = ${s.feedback?.rpe}/10. Commentaire : "${s.feedback?.comment}"`).join('\n') || 'Aucun bilan récent.'}
 
 ### LOGIQUE D'ADAPTATION (PARAMÈTRES)
-- "nbSeances" : ${activeProfile.nbSeances}
+- "nbSeances" : ${activeProfile.nbSeances}. TU DOIS ABSOLUMENT PLACER EXACTEMENT ${activeProfile.nbSeances} SÉANCES D'ENTRAÎNEMENT PAR SEMAINE (soit ${activeProfile.nbSeances * 2} séances sur les 14 jours). Les autres jours DOIVENT OBLIGATOIREMENT être de type "Repos".
 - "courses" : ${coursesText}
 - "affutage" : ${activeProfile.isAffutage ? 'Oui (Réduis le volume de 50% la semaine précédant un objectif A)' : 'Non'}
 - "locked" : Si une séance dans le planning envoyé est "locked": true, tu ne la modifies JAMAIS. Tu adaptes les autres jours pour garder une charge cohérente.
@@ -428,11 +429,11 @@ Dans le planning actuel fourni, certaines journées contiennent un champ "userWi
 - Tu dois ensuite adapter intelligemment le reste de la semaine autour de ces contraintes.
 - Si le souhait de l'utilisateur te semble incohérent ou risqué par rapport à la logique d'entraînement (ex: placer une sortie longue la veille d'une course, ou ne pas respecter de repos après une grosse séance), tu DOIS remplir le champ "coherenceWarning" pour l'avertir, tout en appliquant quand même son souhait.
 
-### PLANNING ACTUEL DE CETTE SEMAINE (à adapter)
-${JSON.stringify(currentWeekSessions, null, 2)}
+### PLANNING ACTUEL (à adapter)
+${JSON.stringify(currentSessions, null, 2)}
 
 ### FORMAT DE SORTIE (STRICT JSON)
-Réponds exclusivement par un tableau JSON de 7 éléments (un pour chaque date demandée) :
+Réponds exclusivement par un tableau JSON de 14 éléments (un pour chaque date demandée) :
 [
   {
     "date": "YYYY-MM-DD",
@@ -465,7 +466,7 @@ Réponds exclusivement par un tableau JSON de 7 éléments (un pour chaque date 
                 coherenceWarning: { type: Type.STRING },
                 locked: { type: Type.BOOLEAN },
               },
-              required: ['date', 'type', 'support', 'desc', 'logic', 'locked'],
+              requirose: ['date', 'type', 'support', 'desc', 'logic', 'locked'],
             },
           },
         },
@@ -476,7 +477,7 @@ Réponds exclusivement par un tableau JSON de 7 éléments (un pour chaque date 
         
         // Réinjecter les données utilisateur (souhaits, bilans) qui ne doivent pas être perdues
         const newPlan = generatedPlan.map((session: any, index: number) => {
-          const date = weekDates[index] || session.date; // Sécurité : forcer la date
+          const date = generationDates[index] || session.date; // Sécurité : forcer la date
           const originalSession = planToAdapt.find(s => s.date === date);
           
           // Ne jamais écraser une séance verrouillée ou déjà complétée
@@ -496,8 +497,8 @@ Réponds exclusivement par un tableau JSON de 7 éléments (un pour chaque date 
         
         // Fusionner le nouveau plan de la semaine avec le plan global
         const generatedDates = newPlan.map((s: any) => s.date);
-        const filteredPlan = planToAdapt.filter(s => !generatedDates.includes(s.date));
-        const finalPlan = [...filteredPlan, ...newPlan];
+        const filterosePlan = planToAdapt.filter(s => !generatedDates.includes(s.date));
+        const finalPlan = [...filterosePlan, ...newPlan];
         
         updateProfile({ plan: finalPlan });
         setActiveTab('dashboard');
@@ -511,30 +512,30 @@ Réponds exclusivement par un tableau JSON de 7 éléments (un pour chaque date 
 
   const getTypeColor = (type: string) => {
     const t = type.toLowerCase();
-    if (t.includes('repos')) return 'bg-slate-100 text-slate-600 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700';
-    if (t.includes('ef')) return 'bg-green-100 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-400 dark:border-green-800';
-    if (t.includes('vma') || t.includes('seuil')) return 'bg-red-100 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-400 dark:border-red-800';
-    if (t.includes('longue') || t.includes('rando')) return 'bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-400 dark:border-blue-800';
-    if (t.includes('côte') || t.includes('cote')) return 'bg-orange-100 text-orange-700 border-orange-200 dark:bg-orange-900/30 dark:text-orange-400 dark:border-orange-800';
-    return 'bg-gray-100 text-gray-700 border-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700';
+    if (t.includes('repos')) return 'bg-zinc-100 text-zinc-600 border-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:border-zinc-700';
+    if (t.includes('ef')) return 'bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400 dark:border-emerald-800';
+    if (t.includes('vma') || t.includes('seuil')) return 'bg-rose-100 text-rose-700 border-rose-200 dark:bg-rose-900/30 dark:text-rose-400 dark:border-rose-800';
+    if (t.includes('longue') || t.includes('rando')) return 'bg-indigo-100 text-indigo-700 border-indigo-200 dark:bg-indigo-900/30 dark:text-indigo-400 dark:border-indigo-800';
+    if (t.includes('côte') || t.includes('cote')) return 'bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-400 dark:border-amber-800';
+    return 'bg-zinc-100 text-zinc-700 border-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:border-zinc-700';
   };
 
-  const weekDates = getWeekDays(parseDate(currentWeekStart));
-  const weekSessions = weekDates.map(date => activeProfile?.plan.find(s => s.date === date) || { date, type: 'Repos', desc: 'Aucune séance prévue. Cliquez sur Recalculer pour générer cette semaine.', locked: false, support: 'Course à pied' } as TrainingSession);
+  const displayDates = getTwoWeeksDays(parseDate(currentWeekStart));
+  const displaySessions = displayDates.map(date => activeProfile?.plan.find(s => s.date === date) || { date, type: 'Repos', desc: 'Aucune séance prévue. Cliquez sur Générer 14 jours pour créer votre programme.', locked: false, support: 'Course à pied' } as TrainingSession);
 
-  const activeSessionsCount = weekSessions.filter(s => !s.type.toLowerCase().includes('repos') && s.desc !== 'Aucune séance prévue. Cliquez sur Recalculer pour générer cette semaine.').length;
-  const intenseCount = weekSessions.filter(s => s.type.toLowerCase().match(/vma|seuil|côte|cote/)).length;
-  const longCount = weekSessions.filter(s => s.type.toLowerCase().match(/longue|rando/)).length;
+  const activeSessionsCount = displaySessions.filter(s => !s.type.toLowerCase().includes('repos') && s.desc !== 'Aucune séance prévue. Cliquez sur Générer 14 jours pour créer votre programme.').length;
+  const intenseCount = displaySessions.filter(s => s.type.toLowerCase().match(/vma|seuil|côte|cote/)).length;
+  const longCount = displaySessions.filter(s => s.type.toLowerCase().match(/longue|rando/)).length;
 
   if (error && (!isAuthReady || !activeProfile)) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50 dark:bg-slate-950 p-4 text-center space-y-4">
-        <div className="p-4 bg-red-100 text-red-700 rounded-full dark:bg-red-900/30 dark:text-red-400">
+      <div className="min-h-screen flex flex-col items-center justify-center bg-zinc-50 dark:bg-zinc-950 p-4 text-center space-y-4">
+        <div className="p-4 bg-rose-100 text-rose-700 rounded-full dark:bg-rose-900/30 dark:text-rose-400">
           <X className="w-8 h-8" />
         </div>
-        <h2 className="text-xl font-bold text-slate-900 dark:text-white">Une erreur est survenue</h2>
-        <p className="text-slate-600 dark:text-slate-400 max-w-md">{error}</p>
-        <p className="text-sm text-slate-500 dark:text-slate-500 max-w-md">
+        <h2 className="text-xl font-bold text-zinc-900 dark:text-white">Une erreur est survenue</h2>
+        <p className="text-zinc-600 dark:text-zinc-400 max-w-md">{error}</p>
+        <p className="text-sm text-zinc-500 dark:text-zinc-500 max-w-md">
           Si vous utilisez Firebase, assurez-vous d'avoir activé le fournisseur de connexion "Anonyme" (Anonymous) dans la console Firebase (Authentication {'>'} Sign-in method).
         </p>
       </div>
@@ -543,41 +544,41 @@ Réponds exclusivement par un tableau JSON de 7 éléments (un pour chaque date 
 
   if (!isAuthReady || !user) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950">
-        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+      <div className="min-h-screen flex items-center justify-center bg-zinc-50 dark:bg-zinc-950">
+        <Loader2 className="w-8 h-8 animate-spin text-indigo-600" />
       </div>
     );
   }
 
   if (!activeProfile) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50 dark:bg-slate-950 space-y-4">
-        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
-        <p className="text-slate-500 animate-pulse">Création de votre profil...</p>
+      <div className="min-h-screen flex flex-col items-center justify-center bg-zinc-50 dark:bg-zinc-950 space-y-4">
+        <Loader2 className="w-8 h-8 animate-spin text-indigo-600" />
+        <p className="text-zinc-500 animate-pulse">Création de votre profil...</p>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 p-4 md:p-8 font-sans">
+    <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 p-4 md:p-8 font-sans selection:bg-indigo-100 selection:text-indigo-900">
       <div className="max-w-5xl mx-auto space-y-8">
         
-        <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-slate-200 dark:border-slate-800">
+        <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-zinc-200 dark:border-zinc-800">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-primary text-primary-foreground rounded-xl shadow-sm">
+            <div className="p-2.5 bg-indigo-600 text-white rounded-xl shadow-sm ring-1 ring-indigo-600/10">
               <Activity className="w-6 h-6" />
             </div>
             <div>
-              <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">Coach Endurance IA</h1>
-              <p className="text-sm text-slate-500 dark:text-slate-400">Planificateur Route, Trail & Ultra-Trail</p>
+              <h1 className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-white">Coach Endurance IA</h1>
+              <p className="text-sm text-zinc-500 dark:text-zinc-400 font-medium">Planificateur Route, Trail & Ultra-Trail</p>
             </div>
           </div>
           
           <div className="flex items-center gap-2 flex-wrap">
-            <div className="flex items-center gap-2 bg-white dark:bg-slate-900 p-2 rounded-lg border border-slate-200 dark:border-slate-800 shadow-sm">
-              <Users className="w-4 h-4 text-slate-500 ml-2" />
+            <div className="flex items-center gap-2 bg-white dark:bg-zinc-900 p-2 rounded-lg border border-zinc-200 dark:border-zinc-800 shadow-sm">
+              <Users className="w-4 h-4 text-zinc-500 ml-2" />
               <select
-                className="bg-transparent border-none focus:ring-0 text-sm font-medium cursor-pointer outline-none"
+                className="bg-transparent border-none focus:ring-0 text-sm font-medium cursor-pointer outline-none text-zinc-700 dark:text-zinc-300"
                 value={activeProfileId}
                 onChange={(e) => setActiveProfileId(e.target.value)}
               >
@@ -585,15 +586,15 @@ Réponds exclusivement par un tableau JSON de 7 éléments (un pour chaque date 
                   <option key={p.id} value={p.id}>{p.name}</option>
                 ))}
               </select>
-              <div className="h-4 w-px bg-slate-200 dark:bg-slate-700 mx-1"></div>
-              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={renameProfile} title="Renommer le profil">
-                <Settings2 className="w-4 h-4 text-slate-500" />
+              <div className="h-4 w-px bg-zinc-200 dark:bg-zinc-700 mx-1"></div>
+              <Button variant="ghost" size="icon" className="h-8 w-8 hover:bg-zinc-100 dark:hover:bg-zinc-800" onClick={renameProfile} title="Renommer le profil">
+                <Settings2 className="w-4 h-4 text-zinc-500" />
               </Button>
-              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={createNewProfile} title="Nouveau profil">
-                <UserPlus className="w-4 h-4 text-slate-500" />
+              <Button variant="ghost" size="icon" className="h-8 w-8 hover:bg-zinc-100 dark:hover:bg-zinc-800" onClick={createNewProfile} title="Nouveau profil">
+                <UserPlus className="w-4 h-4 text-zinc-500" />
               </Button>
               {profiles.length > 1 && (
-                <Button variant="ghost" size="icon" className="h-8 w-8 hover:text-red-500" onClick={() => deleteProfile(activeProfileId)} title="Supprimer le profil">
+                <Button variant="ghost" size="icon" className="h-8 w-8 hover:text-rose-500" onClick={() => deleteProfile(activeProfileId)} title="Supprimer le profil">
                   <Trash2 className="w-4 h-4" />
                 </Button>
               )}
@@ -601,12 +602,12 @@ Réponds exclusivement par un tableau JSON de 7 éléments (un pour chaque date 
             
             <div className="flex items-center gap-2">
               {activeProfile && (
-                <div className="flex items-center gap-2 bg-slate-100 dark:bg-slate-800 px-3 py-1.5 rounded-md border border-slate-200 dark:border-slate-700">
-                  <span className="text-xs text-slate-500">Code d'accès :</span>
-                  <code className="font-mono font-bold text-slate-900 dark:text-white select-all">{activeProfile.id}</code>
+                <div className="flex items-center gap-2 bg-zinc-100 dark:bg-zinc-800 px-3 py-1.5 rounded-md border border-zinc-200 dark:border-zinc-700">
+                  <span className="text-xs text-zinc-500">Code d'accès :</span>
+                  <code className="font-mono font-bold text-zinc-900 dark:text-white select-all">{activeProfile.id}</code>
                 </div>
               )}
-              <Button variant="outline" size="sm" onClick={handleLinkDevice} className="text-blue-600 border-blue-200 hover:bg-blue-50 dark:border-blue-900 dark:hover:bg-blue-900/30">
+              <Button variant="outline" size="sm" onClick={handleLinkDevice} className="text-indigo-600 border-indigo-200 hover:bg-indigo-50 dark:border-indigo-900 dark:hover:bg-indigo-900/30">
                 <Share2 className="w-4 h-4 mr-2" />
                 Lier un appareil
               </Button>
@@ -633,67 +634,67 @@ Réponds exclusivement par un tableau JSON de 7 éléments (un pour chaque date 
           <TabsContent value="dashboard" className="space-y-6 animate-in fade-in-50 duration-500">
             {/* Stats Row */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <Card className="border-slate-200 dark:border-slate-800 shadow-sm">
+              <Card className="border-zinc-200 dark:border-zinc-800 shadow-sm">
                 <CardContent className="p-6 flex items-center gap-4">
-                  <div className="p-3 bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400 rounded-full">
+                  <div className="p-3 bg-indigo-100 text-indigo-600 dark:bg-indigo-900/30 dark:text-indigo-400 rounded-full">
                     <Dumbbell className="w-6 h-6" />
                   </div>
                   <div>
-                    <p className="text-sm font-medium text-slate-500 dark:text-slate-400">Séances actives</p>
-                    <p className="text-2xl font-bold text-slate-900 dark:text-white">{activeSessionsCount} <span className="text-sm font-normal text-slate-500">/ 7 jours</span></p>
+                    <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400">Séances actives</p>
+                    <p className="text-2xl font-bold text-zinc-900 dark:text-white">{activeSessionsCount} <span className="text-sm font-normal text-zinc-500">/ 14 jours</span></p>
                   </div>
                 </CardContent>
               </Card>
               
-              <Card className="border-slate-200 dark:border-slate-800 shadow-sm">
+              <Card className="border-zinc-200 dark:border-zinc-800 shadow-sm">
                 <CardContent className="p-6 flex items-center gap-4">
-                  <div className="p-3 bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400 rounded-full">
+                  <div className="p-3 bg-rose-100 text-rose-600 dark:bg-rose-900/30 dark:text-rose-400 rounded-full">
                     <Flame className="w-6 h-6" />
                   </div>
                   <div>
-                    <p className="text-sm font-medium text-slate-500 dark:text-slate-400">Séances intenses</p>
-                    <p className="text-2xl font-bold text-slate-900 dark:text-white">{intenseCount} <span className="text-sm font-normal text-slate-500">séance(s)</span></p>
+                    <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400">Séances intenses</p>
+                    <p className="text-2xl font-bold text-zinc-900 dark:text-white">{intenseCount} <span className="text-sm font-normal text-zinc-500">séance(s)</span></p>
                   </div>
                 </CardContent>
               </Card>
 
-              <Card className="border-slate-200 dark:border-slate-800 shadow-sm">
+              <Card className="border-zinc-200 dark:border-zinc-800 shadow-sm">
                 <CardContent className="p-6 flex items-center gap-4">
                   <div className="p-3 bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400 rounded-full">
                     <Mountain className="w-6 h-6" />
                   </div>
                   <div>
-                    <p className="text-sm font-medium text-slate-500 dark:text-slate-400">Sorties longues</p>
-                    <p className="text-2xl font-bold text-slate-900 dark:text-white">{longCount} <span className="text-sm font-normal text-slate-500">séance(s)</span></p>
+                    <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400">Sorties longues</p>
+                    <p className="text-2xl font-bold text-zinc-900 dark:text-white">{longCount} <span className="text-sm font-normal text-zinc-500">séance(s)</span></p>
                   </div>
                 </CardContent>
               </Card>
             </div>
 
-            {/* Weekly Plan */}
-            <div className="flex items-center justify-between bg-white dark:bg-slate-900 p-2 rounded-lg border border-slate-200 dark:border-slate-800 shadow-sm mb-4">
-              <Button variant="ghost" size="sm" onClick={() => setCurrentWeekStart(formatDate(addDays(parseDate(currentWeekStart), -7)))}>
-                <ChevronLeft className="w-4 h-4 mr-1" /> Précédent
+            {/* 14-Day Plan */}
+            <div className="flex items-center justify-between bg-white dark:bg-zinc-900 p-2 rounded-lg border border-zinc-200 dark:border-zinc-800 shadow-sm mb-4">
+              <Button variant="ghost" size="sm" onClick={() => setCurrentWeekStart(formatDate(addDays(parseDate(currentWeekStart), -14)))}>
+                <ChevronLeft className="w-4 h-4 mr-1" /> -14j
               </Button>
-              <span className="font-semibold text-slate-700 dark:text-slate-200 capitalize">
-                Semaine du {parseDate(currentWeekStart).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })}
+              <span className="font-semibold text-zinc-700 dark:text-zinc-200 capitalize">
+                Quinzaine du {parseDate(currentWeekStart).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })}
               </span>
-              <Button variant="ghost" size="sm" onClick={() => setCurrentWeekStart(formatDate(addDays(parseDate(currentWeekStart), 7)))}>
-                Suivant <ChevronRight className="w-4 h-4 ml-1" />
+              <Button variant="ghost" size="sm" onClick={() => setCurrentWeekStart(formatDate(addDays(parseDate(currentWeekStart), 14)))}>
+                +14j <ChevronRight className="w-4 h-4 ml-1" />
               </Button>
             </div>
 
-            <Card className="border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
-              <CardHeader className="bg-slate-50/50 dark:bg-slate-900/20 border-b border-slate-100 dark:border-slate-800/50 pb-4">
+            <Card className="border-zinc-200 dark:border-zinc-800 shadow-sm overflow-hidden">
+              <CardHeader className="bg-zinc-50/50 dark:bg-zinc-900/20 border-b border-zinc-100 dark:border-zinc-800/50 pb-4">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                   <div>
                     <CardTitle className="text-lg">Programme de la semaine</CardTitle>
                     <CardDescription>Plan personnalisé pour {activeProfile.name}.</CardDescription>
                   </div>
                   <div className="flex items-center gap-2">
-                    <Button variant="default" size="sm" onClick={() => generatePlan(activeProfile.plan, currentWeekStart)} disabled={loading} className="bg-blue-600 hover:bg-blue-700 text-white">
+                    <Button variant="default" size="sm" onClick={() => generatePlan(activeProfile.plan, currentWeekStart)} disabled={loading} className="bg-indigo-600 hover:bg-indigo-700 text-white">
                       {loading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <RefreshCw className="w-4 h-4 mr-2" />}
-                      Recalculer
+                      Générer 14 jours
                     </Button>
                     <Button variant="outline" size="sm" onClick={downloadPlan}>
                       <Download className="w-4 h-4 mr-2" />
@@ -707,19 +708,19 @@ Réponds exclusivement par un tableau JSON de 7 éléments (un pour chaque date 
                 </div>
               </CardHeader>
               <CardContent className="p-0">
-                <div className="divide-y divide-slate-100 dark:divide-slate-800/50">
-                  {weekSessions.map((session, index) => (
+                <div className="divide-y divide-zinc-100 dark:divide-zinc-800/50">
+                  {displaySessions.map((session, index) => (
                     <div 
                       key={session.date} 
-                      className={`p-4 sm:p-5 flex flex-col sm:flex-row gap-4 transition-colors hover:bg-slate-50/50 dark:hover:bg-slate-900/50 ${session.locked ? 'bg-slate-50 dark:bg-slate-900/20' : ''}`}
+                      className={`p-4 sm:p-5 flex flex-col sm:flex-row gap-4 transition-colors hover:bg-zinc-50/50 dark:hover:bg-zinc-900/50 ${session.locked ? 'bg-zinc-50 dark:bg-zinc-900/20' : ''}`}
                     >
                       {/* Day & Lock */}
                       <div className="sm:w-32 flex items-center sm:items-start justify-between sm:flex-col gap-2 shrink-0">
-                        <span className="font-bold text-slate-700 dark:text-slate-200 capitalize">{formatDisplayDate(session.date)}</span>
+                        <span className="font-bold text-zinc-700 dark:text-zinc-200 capitalize">{formatDisplayDate(session.date)}</span>
                         <Button 
                           variant="ghost" 
                           size="sm" 
-                          className={`h-8 px-2 text-xs ${session.locked ? 'text-amber-600 hover:text-amber-700 hover:bg-amber-50 dark:text-amber-500 dark:hover:bg-amber-950/50' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'}`}
+                          className={`h-8 px-2 text-xs ${session.locked ? 'text-amber-600 hover:text-amber-700 hover:bg-amber-50 dark:text-amber-500 dark:hover:bg-amber-950/50' : 'text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300'}`}
                           onClick={() => toggleLock(session.date)}
                         >
                           {session.locked ? (
@@ -732,11 +733,11 @@ Réponds exclusivement par un tableau JSON de 7 éléments (un pour chaque date 
 
                       {/* Content */}
                       {editingDate === session.date ? (
-                        <div className="flex-1 space-y-4 bg-white dark:bg-slate-950 p-4 rounded-lg border border-slate-200 dark:border-slate-800 shadow-sm">
+                        <div className="flex-1 space-y-4 bg-white dark:bg-zinc-950 p-4 rounded-lg border border-zinc-200 dark:border-zinc-800 shadow-sm">
                           <div className="space-y-2">
-                            <Label className="text-xs text-slate-500 font-semibold">Type de support :</Label>
+                            <Label className="text-xs text-zinc-500 font-semibold">Type de support :</Label>
                             <select 
-                              className="w-full text-sm border border-slate-200 rounded-md p-2 dark:bg-slate-900 dark:border-slate-800"
+                              className="w-full text-sm border border-zinc-200 rounded-md p-2 dark:bg-zinc-900 dark:border-zinc-800"
                               value={editForm.support}
                               onChange={e => setEditForm({ ...editForm, support: e.target.value })}
                             >
@@ -748,7 +749,7 @@ Réponds exclusivement par un tableau JSON de 7 éléments (un pour chaque date 
                             </select>
                           </div>
                           <div className="space-y-2">
-                            <Label className="text-xs text-slate-500 font-semibold">Votre souhait pour le {formatDisplayDate(session.date)} :</Label>
+                            <Label className="text-xs text-zinc-500 font-semibold">Votre souhait pour le {formatDisplayDate(session.date)} :</Label>
                             <Textarea 
                               value={editForm.wish} 
                               onChange={e => setEditForm({ ...editForm, wish: e.target.value })} 
@@ -761,7 +762,7 @@ Réponds exclusivement par un tableau JSON de 7 éléments (un pour chaque date 
                             <Button variant="ghost" size="sm" onClick={() => setEditingDate(null)} className="h-8 text-xs">
                               <X className="w-3 h-3 mr-1" /> Annuler
                             </Button>
-                            <Button variant="default" size="sm" onClick={() => saveEdit(session.date)} className="h-8 text-xs bg-blue-600 hover:bg-blue-700 text-white">
+                            <Button variant="default" size="sm" onClick={() => saveEdit(session.date)} className="h-8 text-xs bg-indigo-600 hover:bg-indigo-700 text-white">
                               <Check className="w-3 h-3 mr-1" /> Adapter la semaine
                             </Button>
                           </div>
@@ -784,24 +785,24 @@ Réponds exclusivement par un tableau JSON de 7 éléments (un pour chaque date 
                                 </Badge>
                               )}
                             </div>
-                            <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-400 hover:text-blue-600 dark:hover:text-blue-400" onClick={() => startEdit(session.date)} title="Émettre un souhait pour ce jour">
+                            <Button variant="ghost" size="icon" className="h-8 w-8 text-zinc-400 hover:text-indigo-600 dark:hover:text-indigo-400" onClick={() => startEdit(session.date)} title="Émettre un souhait pour ce jour">
                               <Pencil className="w-4 h-4" />
                             </Button>
                           </div>
-                          <p className="text-slate-600 dark:text-slate-300 text-sm leading-relaxed">
+                          <p className="text-zinc-600 dark:text-zinc-300 text-sm leading-relaxed">
                             {session.desc}
                           </p>
                           {session.logic && (
-                            <div className="mt-3 p-3 bg-slate-50 dark:bg-slate-900/50 rounded-lg border border-slate-100 dark:border-slate-800">
-                              <p className="text-sm text-slate-600 dark:text-slate-400 flex items-start gap-2">
+                            <div className="mt-3 p-3 bg-zinc-50 dark:bg-zinc-900/50 rounded-lg border border-zinc-100 dark:border-zinc-800">
+                              <p className="text-sm text-zinc-600 dark:text-zinc-400 flex items-start gap-2">
                                 <Lightbulb className="w-4 h-4 shrink-0 text-amber-500 mt-0.5" />
                                 <span>{session.logic}</span>
                               </p>
                             </div>
                           )}
                           {session.coherenceWarning && (
-                            <div className="mt-2 p-3 bg-red-50 dark:bg-red-900/20 rounded-lg border border-red-100 dark:border-red-800/50">
-                              <p className="text-sm text-red-700 dark:text-red-400 flex items-start gap-2">
+                            <div className="mt-2 p-3 bg-rose-50 dark:bg-rose-900/20 rounded-lg border border-rose-100 dark:border-rose-800/50">
+                              <p className="text-sm text-rose-700 dark:text-rose-400 flex items-start gap-2">
                                 <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
                                 <span><strong>Attention :</strong> {session.coherenceWarning}</span>
                               </p>
@@ -809,22 +810,22 @@ Réponds exclusivement par un tableau JSON de 7 éléments (un pour chaque date 
                           )}
                           
                           {/* Feedback / Bilan Section */}
-                          <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800/50">
+                          <div className="mt-4 pt-3 border-t border-zinc-100 dark:border-zinc-800/50">
                             {session.isCompleted && session.feedback ? (
-                              <div className="bg-slate-50 dark:bg-slate-900/30 p-3 rounded-lg border border-slate-100 dark:border-slate-800">
+                              <div className="bg-zinc-50 dark:bg-zinc-900/30 p-3 rounded-lg border border-zinc-100 dark:border-zinc-800">
                                 <div className="flex items-center gap-2 mb-1">
-                                  <Check className="w-4 h-4 text-green-500" />
-                                  <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Séance terminée</span>
+                                  <Check className="w-4 h-4 text-emerald-500" />
+                                  <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Séance terminée</span>
                                   <Badge variant="outline" className="ml-auto text-xs">RPE: {session.feedback.rpe}/10</Badge>
                                 </div>
                                 {session.feedback.comment && (
-                                  <p className="text-sm text-slate-600 dark:text-slate-400 mt-2 italic">"{session.feedback.comment}"</p>
+                                  <p className="text-sm text-zinc-600 dark:text-zinc-400 mt-2 italic">"{session.feedback.comment}"</p>
                                 )}
                               </div>
                             ) : feedbackDate === session.date ? (
-                              <div className="bg-white dark:bg-slate-950 p-3 rounded-lg border border-blue-200 dark:border-blue-900/50 shadow-sm space-y-3">
+                              <div className="bg-white dark:bg-zinc-950 p-3 rounded-lg border border-indigo-200 dark:border-indigo-900/50 shadow-sm space-y-3">
                                 <div>
-                                  <Label className="text-xs text-slate-500 font-semibold mb-1 block">Difficulté ressentie (RPE 1-10) :</Label>
+                                  <Label className="text-xs text-zinc-500 font-semibold mb-1 block">Difficulté ressentie (RPE 1-10) :</Label>
                                   <div className="flex items-center gap-3">
                                     <input 
                                       type="range" 
@@ -837,7 +838,7 @@ Réponds exclusivement par un tableau JSON de 7 éléments (un pour chaque date 
                                   </div>
                                 </div>
                                 <div>
-                                  <Label className="text-xs text-slate-500 font-semibold mb-1 block">Commentaire (fatigue, sensations...) :</Label>
+                                  <Label className="text-xs text-zinc-500 font-semibold mb-1 block">Commentaire (fatigue, sensations...) :</Label>
                                   <Textarea 
                                     value={feedbackForm.comment}
                                     onChange={e => setFeedbackForm({...feedbackForm, comment: e.target.value})}
@@ -850,13 +851,13 @@ Réponds exclusivement par un tableau JSON de 7 éléments (un pour chaque date 
                                   <Button variant="ghost" size="sm" onClick={() => setFeedbackDate(null)} className="h-8 text-xs">
                                     Annuler
                                   </Button>
-                                  <Button variant="default" size="sm" onClick={() => saveFeedback(session.date)} className="h-8 text-xs bg-green-600 hover:bg-green-700 text-white">
+                                  <Button variant="default" size="sm" onClick={() => saveFeedback(session.date)} className="h-8 text-xs bg-emerald-600 hover:bg-emerald-700 text-white">
                                     <Check className="w-3 h-3 mr-1" /> Valider le bilan
                                   </Button>
                                 </div>
                               </div>
                             ) : (
-                              <Button variant="ghost" size="sm" onClick={() => { setFeedbackDate(session.date); setFeedbackForm({ rpe: 5, comment: '' }); }} className="text-xs text-slate-500 hover:text-blue-600">
+                              <Button variant="ghost" size="sm" onClick={() => { setFeedbackDate(session.date); setFeedbackForm({ rpe: 5, comment: '' }); }} className="text-xs text-zinc-500 hover:text-indigo-600">
                                 <MessageSquare className="w-3 h-3 mr-1" /> Faire le bilan de la séance
                               </Button>
                             )}
@@ -871,7 +872,7 @@ Réponds exclusivement par un tableau JSON de 7 éléments (un pour chaque date 
           </TabsContent>
 
           <TabsContent value="parameters" className="animate-in fade-in-50 duration-500">
-            <Card className="border-slate-200 dark:border-slate-800 shadow-sm max-w-3xl mx-auto">
+            <Card className="border-zinc-200 dark:border-zinc-800 shadow-sm max-w-3xl mx-auto">
               <CardHeader>
                 <CardTitle className="text-xl">Objectifs & Configuration</CardTitle>
                 <CardDescription>Ajustez les objectifs pour {activeProfile.name}.</CardDescription>
@@ -890,7 +891,7 @@ Réponds exclusivement par un tableau JSON de 7 éléments (un pour chaque date 
                       onChange={(e) => updateProfile({ nbSeances: parseInt(e.target.value) || 0 })}
                       className="w-24 text-lg"
                     />
-                    <span className="text-slate-500">séances par semaine</span>
+                    <span className="text-zinc-500">séances par semaine</span>
                   </div>
                 </div>
 
@@ -907,18 +908,18 @@ Réponds exclusivement par un tableau JSON de 7 éléments (un pour chaque date 
                   
                   <div className="space-y-4">
                     {activeProfile.mainGoals.map((goal, index) => (
-                      <div key={goal.id} className="space-y-4 p-5 bg-slate-50 dark:bg-slate-900/50 rounded-xl border border-slate-100 dark:border-slate-800 relative">
+                      <div key={goal.id} className="space-y-4 p-5 bg-zinc-50 dark:bg-zinc-900/50 rounded-xl border border-zinc-100 dark:border-zinc-800 relative">
                         <div className="flex items-center justify-between">
                           <h3 className="font-semibold text-amber-600 dark:text-amber-500 flex items-center gap-2">
                             Objectif Majeur #{index + 1}
                           </h3>
-                          <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-400 hover:text-red-500" onClick={() => updateProfile({ mainGoals: activeProfile.mainGoals.filter(g => g.id !== goal.id) })}>
+                          <Button variant="ghost" size="icon" className="h-8 w-8 text-zinc-400 hover:text-rose-500" onClick={() => updateProfile({ mainGoals: activeProfile.mainGoals.filter(g => g.id !== goal.id) })}>
                             <Trash2 className="w-4 h-4" />
                           </Button>
                         </div>
                         <div className="space-y-3">
                           <div className="space-y-1.5">
-                            <Label className="text-xs text-slate-500 uppercase tracking-wider">Nom de l'évènement</Label>
+                            <Label className="text-xs text-zinc-500 uppercase tracking-wider">Nom de l'évènement</Label>
                             <Input 
                               value={goal.name} 
                               onChange={e => updateProfile({ mainGoals: activeProfile.mainGoals.map(g => g.id === goal.id ? { ...g, name: e.target.value } : g) })} 
@@ -927,7 +928,7 @@ Réponds exclusivement par un tableau JSON de 7 éléments (un pour chaque date 
                           </div>
                           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                             <div className="space-y-1.5">
-                              <Label className="text-xs text-slate-500 uppercase tracking-wider">Date</Label>
+                              <Label className="text-xs text-zinc-500 uppercase tracking-wider">Date</Label>
                               <Input 
                                 type="date" 
                                 value={goal.date} 
@@ -935,7 +936,7 @@ Réponds exclusivement par un tableau JSON de 7 éléments (un pour chaque date 
                               />
                             </div>
                             <div className="space-y-1.5">
-                              <Label className="text-xs text-slate-500 uppercase tracking-wider">Distance (km)</Label>
+                              <Label className="text-xs text-zinc-500 uppercase tracking-wider">Distance (km)</Label>
                               <Input 
                                 type="number" 
                                 min={0}
@@ -944,7 +945,7 @@ Réponds exclusivement par un tableau JSON de 7 éléments (un pour chaque date 
                               />
                             </div>
                             <div className="space-y-1.5">
-                              <Label className="text-xs text-slate-500 uppercase tracking-wider">Dénivelé (m D+)</Label>
+                              <Label className="text-xs text-zinc-500 uppercase tracking-wider">Dénivelé (m D+)</Label>
                               <Input 
                                 type="number" 
                                 min={0}
@@ -957,15 +958,15 @@ Réponds exclusivement par un tableau JSON de 7 éléments (un pour chaque date 
                       </div>
                     ))}
                     {activeProfile.mainGoals.length === 0 && (
-                      <p className="text-sm text-slate-500 italic text-center py-4">Aucun objectif majeur défini.</p>
+                      <p className="text-sm text-zinc-500 italic text-center py-4">Aucun objectif majeur défini.</p>
                     )}
                   </div>
                 </div>
 
-                <div className="space-y-6 pt-4 border-t border-slate-100 dark:border-slate-800">
+                <div className="space-y-6 pt-4 border-t border-zinc-100 dark:border-zinc-800">
                   <div className="flex items-center justify-between">
                     <Label className="text-base font-semibold flex items-center gap-2">
-                      <Mountain className="w-5 h-5 text-slate-500" />
+                      <Mountain className="w-5 h-5 text-zinc-500" />
                       Objectifs Secondaires (B)
                     </Label>
                     <Button variant="outline" size="sm" onClick={() => updateProfile({ secondaryGoals: [...activeProfile.secondaryGoals, { id: Date.now().toString(), name: '', date: '', distance: '', elevation: '' }] })}>
@@ -975,18 +976,18 @@ Réponds exclusivement par un tableau JSON de 7 éléments (un pour chaque date 
                   
                   <div className="space-y-4">
                     {activeProfile.secondaryGoals.map((goal, index) => (
-                      <div key={goal.id} className="space-y-4 p-5 bg-slate-50 dark:bg-slate-900/50 rounded-xl border border-slate-100 dark:border-slate-800 relative">
+                      <div key={goal.id} className="space-y-4 p-5 bg-zinc-50 dark:bg-zinc-900/50 rounded-xl border border-zinc-100 dark:border-zinc-800 relative">
                         <div className="flex items-center justify-between">
-                          <h3 className="font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-2">
+                          <h3 className="font-semibold text-zinc-700 dark:text-zinc-300 flex items-center gap-2">
                             Objectif Secondaire #{index + 1}
                           </h3>
-                          <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-400 hover:text-red-500" onClick={() => updateProfile({ secondaryGoals: activeProfile.secondaryGoals.filter(g => g.id !== goal.id) })}>
+                          <Button variant="ghost" size="icon" className="h-8 w-8 text-zinc-400 hover:text-rose-500" onClick={() => updateProfile({ secondaryGoals: activeProfile.secondaryGoals.filter(g => g.id !== goal.id) })}>
                             <Trash2 className="w-4 h-4" />
                           </Button>
                         </div>
                         <div className="space-y-3">
                           <div className="space-y-1.5">
-                            <Label className="text-xs text-slate-500 uppercase tracking-wider">Nom de l'évènement</Label>
+                            <Label className="text-xs text-zinc-500 uppercase tracking-wider">Nom de l'évènement</Label>
                             <Input 
                               value={goal.name} 
                               onChange={e => updateProfile({ secondaryGoals: activeProfile.secondaryGoals.map(g => g.id === goal.id ? { ...g, name: e.target.value } : g) })} 
@@ -995,7 +996,7 @@ Réponds exclusivement par un tableau JSON de 7 éléments (un pour chaque date 
                           </div>
                           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                             <div className="space-y-1.5">
-                              <Label className="text-xs text-slate-500 uppercase tracking-wider">Date</Label>
+                              <Label className="text-xs text-zinc-500 uppercase tracking-wider">Date</Label>
                               <Input 
                                 type="date" 
                                 value={goal.date} 
@@ -1003,7 +1004,7 @@ Réponds exclusivement par un tableau JSON de 7 éléments (un pour chaque date 
                               />
                             </div>
                             <div className="space-y-1.5">
-                              <Label className="text-xs text-slate-500 uppercase tracking-wider">Distance (km)</Label>
+                              <Label className="text-xs text-zinc-500 uppercase tracking-wider">Distance (km)</Label>
                               <Input 
                                 type="number" 
                                 min={0}
@@ -1012,7 +1013,7 @@ Réponds exclusivement par un tableau JSON de 7 éléments (un pour chaque date 
                               />
                             </div>
                             <div className="space-y-1.5">
-                              <Label className="text-xs text-slate-500 uppercase tracking-wider">Dénivelé (m D+)</Label>
+                              <Label className="text-xs text-zinc-500 uppercase tracking-wider">Dénivelé (m D+)</Label>
                               <Input 
                                 type="number" 
                                 min={0}
@@ -1025,15 +1026,15 @@ Réponds exclusivement par un tableau JSON de 7 éléments (un pour chaque date 
                       </div>
                     ))}
                     {activeProfile.secondaryGoals.length === 0 && (
-                      <p className="text-sm text-slate-500 italic text-center py-4">Aucun objectif secondaire défini.</p>
+                      <p className="text-sm text-zinc-500 italic text-center py-4">Aucun objectif secondaire défini.</p>
                     )}
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between p-4 bg-slate-100 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800">
+                <div className="flex items-center justify-between p-4 bg-zinc-100 dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800">
                   <div className="space-y-1">
                     <Label htmlFor="affutage" className="text-base font-semibold">Semaine d'affûtage</Label>
-                    <p className="text-sm text-slate-500">Réduit le volume de 50% avant une course</p>
+                    <p className="text-sm text-zinc-500">Réduit le volume de 50% avant une course</p>
                   </div>
                   <Switch 
                     id="affutage" 
@@ -1042,7 +1043,7 @@ Réponds exclusivement par un tableau JSON de 7 éléments (un pour chaque date 
                   />
                 </div>
 
-                <div className="pt-4 border-t border-slate-200 dark:border-slate-800">
+                <div className="pt-4 border-t border-zinc-200 dark:border-zinc-800">
                   <Button 
                     className="w-full text-base h-12" 
                     size="lg"
@@ -1060,7 +1061,7 @@ Réponds exclusivement par un tableau JSON de 7 éléments (un pour chaque date 
                   </Button>
                   
                   {error && (
-                    <div className="mt-4 p-4 text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg dark:bg-red-900/20 dark:border-red-800 dark:text-red-400">
+                    <div className="mt-4 p-4 text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded-lg dark:bg-rose-900/20 dark:border-rose-800 dark:text-rose-400">
                       {error}
                     </div>
                   )}
@@ -1070,7 +1071,7 @@ Réponds exclusivement par un tableau JSON de 7 éléments (un pour chaque date 
           </TabsContent>
 
           <TabsContent value="history" className="animate-in fade-in-50 duration-500">
-            <Card className="border-slate-200 dark:border-slate-800 shadow-sm max-w-3xl mx-auto">
+            <Card className="border-zinc-200 dark:border-zinc-800 shadow-sm max-w-3xl mx-auto">
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <div>
@@ -1084,14 +1085,14 @@ Réponds exclusivement par un tableau JSON de 7 éléments (un pour chaque date 
               </CardHeader>
               <CardContent className="space-y-4">
                 {activeProfile.pastRaces.map((race) => (
-                  <div key={race.id} className="p-5 bg-slate-50 dark:bg-slate-900/50 rounded-xl border border-slate-100 dark:border-slate-800 relative">
-                    <Button variant="ghost" size="icon" className="absolute top-3 right-3 h-8 w-8 text-slate-400 hover:text-red-500" onClick={() => updateProfile({ pastRaces: activeProfile.pastRaces.filter(r => r.id !== race.id) })}>
+                  <div key={race.id} className="p-5 bg-zinc-50 dark:bg-zinc-900/50 rounded-xl border border-zinc-100 dark:border-zinc-800 relative">
+                    <Button variant="ghost" size="icon" className="absolute top-3 right-3 h-8 w-8 text-zinc-400 hover:text-rose-500" onClick={() => updateProfile({ pastRaces: activeProfile.pastRaces.filter(r => r.id !== race.id) })}>
                       <Trash2 className="w-4 h-4" />
                     </Button>
                     <div className="space-y-4 pr-8">
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div className="space-y-1.5">
-                          <Label className="text-xs text-slate-500 uppercase tracking-wider">Nom de la course</Label>
+                          <Label className="text-xs text-zinc-500 uppercase tracking-wider">Nom de la course</Label>
                           <Input 
                             value={race.name} 
                             onChange={e => updateProfile({ pastRaces: activeProfile.pastRaces.map(r => r.id === race.id ? { ...r, name: e.target.value } : r) })} 
@@ -1099,7 +1100,7 @@ Réponds exclusivement par un tableau JSON de 7 éléments (un pour chaque date 
                           />
                         </div>
                         <div className="space-y-1.5">
-                          <Label className="text-xs text-slate-500 uppercase tracking-wider">Date</Label>
+                          <Label className="text-xs text-zinc-500 uppercase tracking-wider">Date</Label>
                           <Input 
                             type="date" 
                             value={race.date} 
@@ -1109,7 +1110,7 @@ Réponds exclusivement par un tableau JSON de 7 éléments (un pour chaque date 
                       </div>
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                         <div className="space-y-1.5">
-                          <Label className="text-xs text-slate-500 uppercase tracking-wider">Distance (km)</Label>
+                          <Label className="text-xs text-zinc-500 uppercase tracking-wider">Distance (km)</Label>
                           <Input 
                             type="number" 
                             min={0}
@@ -1118,7 +1119,7 @@ Réponds exclusivement par un tableau JSON de 7 éléments (un pour chaque date 
                           />
                         </div>
                         <div className="space-y-1.5">
-                          <Label className="text-xs text-slate-500 uppercase tracking-wider">Dénivelé (m D+)</Label>
+                          <Label className="text-xs text-zinc-500 uppercase tracking-wider">Dénivelé (m D+)</Label>
                           <Input 
                             type="number" 
                             min={0}
@@ -1127,7 +1128,7 @@ Réponds exclusivement par un tableau JSON de 7 éléments (un pour chaque date 
                           />
                         </div>
                         <div className="space-y-1.5">
-                          <Label className="text-xs text-slate-500 uppercase tracking-wider flex items-center gap-1">
+                          <Label className="text-xs text-zinc-500 uppercase tracking-wider flex items-center gap-1">
                             <Clock className="w-3 h-3" /> Temps
                           </Label>
                           <Input 
@@ -1141,10 +1142,10 @@ Réponds exclusivement par un tableau JSON de 7 éléments (un pour chaque date 
                   </div>
                 ))}
                 {activeProfile.pastRaces.length === 0 && (
-                  <div className="text-center py-12 border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-xl">
-                    <History className="w-8 h-8 text-slate-300 mx-auto mb-3" />
-                    <p className="text-slate-500 font-medium">Aucune course enregistrée</p>
-                    <p className="text-sm text-slate-400 mt-1">Ajoutez vos résultats passés pour personnaliser le coaching.</p>
+                  <div className="text-center py-12 border-2 border-dashed border-zinc-200 dark:border-zinc-800 rounded-xl">
+                    <History className="w-8 h-8 text-zinc-300 mx-auto mb-3" />
+                    <p className="text-zinc-500 font-medium">Aucune course enregistrée</p>
+                    <p className="text-sm text-zinc-400 mt-1">Ajoutez vos résultats passés pour personnaliser le coaching.</p>
                   </div>
                 )}
               </CardContent>
