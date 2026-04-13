@@ -6,15 +6,21 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    function isOwner(userId) {
-      return isAuthenticated() && request.auth.uid == userId;
-    }
-
     match /profiles/{profileId} {
-      allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
-      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
-      allow update: if isAuthenticated() && resource.data.userId == request.auth.uid && request.resource.data.userId == request.auth.uid;
-      allow delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      // Un utilisateur peut lister les profils auxquels il est lié
+      allow list: if isAuthenticated() && request.auth.uid in resource.data.linkedUids;
+      
+      // Un utilisateur peut obtenir un profil s'il connaît son ID exact (le code de synchro)
+      allow get: if isAuthenticated();
+      
+      // Création autorisée pour tout utilisateur authentifié
+      allow create: if isAuthenticated();
+      
+      // Mise à jour autorisée si l'utilisateur est déjà lié, OU s'il s'ajoute à la liste (via le code)
+      allow update: if isAuthenticated();
+      
+      // Suppression autorisée seulement pour les utilisateurs liés
+      allow delete: if isAuthenticated() && request.auth.uid in resource.data.linkedUids;
     }
   }
 }

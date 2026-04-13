@@ -8,10 +8,10 @@ import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Lock, Unlock, Loader2, Calendar, Settings2, Activity, Trophy, Flame, Mountain, Dumbbell, Plus, Trash2, Download, Users, UserPlus, History, Clock, Pencil, Check, X, LogIn, LogOut, Lightbulb, AlertTriangle } from 'lucide-react';
-import { auth, db, googleProvider } from './firebase';
-import { onAuthStateChanged, User, signInAnonymously, linkWithPopup, signInWithPopup, signOut } from 'firebase/auth';
-import { collection, doc, setDoc, deleteDoc, onSnapshot, query, where } from 'firebase/firestore';
+import { Lock, Unlock, Loader2, Calendar, Settings2, Activity, Trophy, Flame, Mountain, Dumbbell, Plus, Trash2, Download, Users, UserPlus, History, Clock, Pencil, Check, X, Lightbulb, AlertTriangle, RefreshCw, MessageSquare, Share2 } from 'lucide-react';
+import { auth, db } from './firebase';
+import { onAuthStateChanged, User, signInAnonymously } from 'firebase/auth';
+import { collection, doc, setDoc, deleteDoc, onSnapshot, query, where, getDoc, updateDoc, arrayUnion } from 'firebase/firestore';
 
 let aiClient: GoogleGenAI | null = null;
 const getAI = () => {
@@ -34,6 +34,11 @@ interface TrainingSession {
   support?: string;
   logic?: string;
   coherenceWarning?: string;
+  isCompleted?: boolean;
+  feedback?: {
+    rpe: number;
+    comment: string;
+  };
 }
 
 interface Goal {
@@ -55,7 +60,7 @@ interface PastRace {
 
 interface UserProfile {
   id: string;
-  userId: string;
+  linkedUids: string[];
   name: string;
   nbSeances: number;
   mainGoals: Goal[];
@@ -75,9 +80,11 @@ const defaultPlan: TrainingSession[] = [
   { jour: 'Dimanche', type: 'Sortie Longue', desc: 'Sortie Longue 1h30', locked: false, support: 'Course à pied', logic: 'Travail de l\'endurance spécifique et de la résistance musculaire.' },
 ];
 
+const generateShortId = () => Math.random().toString(36).substring(2, 8).toUpperCase();
+
 const defaultProfile = (userId: string): UserProfile => ({
-  id: Date.now().toString(),
-  userId,
+  id: generateShortId(),
+  linkedUids: [userId],
   name: 'Mon Profil',
   nbSeances: 4,
   mainGoals: [{ id: '1', name: 'Trail des Crêtes', date: '2026-08-15', distance: 50, elevation: 2000 }],
@@ -96,7 +103,9 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<string>('dashboard');
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  const [feedbackIndex, setFeedbackIndex] = useState<number | null>(null);
   const [editForm, setEditForm] = useState({ wish: '', support: 'Course à pied' });
+  const [feedbackForm, setFeedbackForm] = useState({ rpe: 5, comment: '' });
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
@@ -122,7 +131,7 @@ export default function App() {
       return;
     }
 
-    const q = query(collection(db, 'profiles'), where('userId', '==', user.uid));
+    const q = query(collection(db, 'profiles'), where('linkedUids', 'array-contains', user.uid));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const loadedProfiles = snapshot.docs.map(doc => doc.data() as UserProfile);
       
@@ -144,36 +153,25 @@ export default function App() {
     return () => unsubscribe();
   }, [user, isAuthReady]);
 
-  const handleLinkAccount = async () => {
+  const handleLinkDevice = async () => {
     if (!user) return;
+    const code = prompt("Entrez le code d'accès à 6 caractères d'un autre appareil :");
+    if (!code) return;
+    
     try {
-      await linkWithPopup(user, googleProvider);
-      alert("Compte sauvegardé avec succès ! Vous pouvez maintenant vous connecter avec ce compte Google sur vos autres appareils pour retrouver vos données.");
-    } catch (err: any) {
-      console.error(err);
-      if (err.code === 'auth/credential-already-in-use') {
-        alert("Ce compte Google est déjà lié à un autre profil. Veuillez utiliser un autre compte Google, ou connectez-vous directement si vous souhaitez écraser les données actuelles.");
+      const docRef = doc(db, 'profiles', code.toUpperCase());
+      const docSnap = await getDoc(docRef);
+      if (docSnap.exists()) {
+        await updateDoc(docRef, {
+          linkedUids: arrayUnion(user.uid)
+        });
+        alert("Appareil lié avec succès !");
       } else {
-        alert("Erreur lors de la sauvegarde du compte.");
+        alert("Code introuvable.");
       }
-    }
-  };
-
-  const handleLogin = async () => {
-    try {
-      await signInWithPopup(auth, googleProvider);
     } catch (err) {
       console.error(err);
-      alert("Erreur lors de la connexion.");
-    }
-  };
-
-  const handleLogout = async () => {
-    try {
-      await signOut(auth);
-      // Après la déconnexion, onAuthStateChanged va recréer un compte anonyme automatiquement
-    } catch (err) {
-      console.error(err);
+      alert("Erreur lors de la liaison.");
     }
   };
 
@@ -196,7 +194,7 @@ export default function App() {
     if (newName && newName.trim()) {
       const newProfile: UserProfile = {
         ...defaultProfile(user.uid),
-        id: Date.now().toString(),
+        id: generateShortId(),
         name: newName.trim(),
         mainGoals: [],
         secondaryGoals: [],
@@ -268,6 +266,21 @@ export default function App() {
     await generatePlan(newPlan);
   };
 
+  const saveFeedback = async (index: number) => {
+    if (!activeProfile) return;
+    const newPlan = [...activeProfile.plan];
+    newPlan[index] = {
+      ...newPlan[index],
+      isCompleted: true,
+      feedback: {
+        rpe: feedbackForm.rpe,
+        comment: feedbackForm.comment
+      }
+    };
+    await updateProfile({ plan: newPlan });
+    setFeedbackIndex(null);
+  };
+
   const downloadPlan = () => {
     if (!activeProfile) return;
     const textContent = `Programme d'entraînement - ${activeProfile.name}\n\n` +
@@ -316,6 +329,10 @@ Tu es l'intelligence centrale d'un logiciel de planification. Tu dois générer 
 
 ### HISTORIQUE DU COUREUR (Niveau et Expérience)
 ${pastRacesText}
+
+### RETOURS SUR LES SÉANCES PASSÉES (BILAN)
+Prends en compte ces retours pour adapter la suite de la semaine (ex: si RPE élevé > 8, allège la suite) :
+${activeProfile.plan.filter(s => s.isCompleted && s.feedback).map(s => `- ${s.jour} (${s.type}) : Difficulté ressentie (RPE) = ${s.feedback?.rpe}/10. Commentaire : "${s.feedback?.comment}"`).join('\n') || 'Aucun bilan récent.'}
 
 ### LOGIQUE D'ADAPTATION (PARAMÈTRES)
 - "nbSeances" : ${activeProfile.nbSeances}
@@ -381,7 +398,9 @@ Réponds exclusivement par un tableau JSON, sans texte superflu :
           return {
             ...session,
             userWish: originalSession?.userWish || '',
-            support: session.support || originalSession?.support || 'Course à pied'
+            support: session.support || originalSession?.support || 'Course à pied',
+            isCompleted: originalSession?.isCompleted || false,
+            feedback: originalSession?.feedback
           };
         });
         updateProfile({ plan: newPlan });
@@ -482,22 +501,16 @@ Réponds exclusivement par un tableau JSON, sans texte superflu :
             </div>
             
             <div className="flex items-center gap-2">
-              {user?.isAnonymous ? (
-                <>
-                  <Button variant="outline" size="sm" onClick={handleLinkAccount} className="text-blue-600 border-blue-200 hover:bg-blue-50 dark:border-blue-900 dark:hover:bg-blue-900/30">
-                    <LogIn className="w-4 h-4 mr-2" />
-                    Sauvegarder (Google)
-                  </Button>
-                  <Button variant="ghost" size="sm" onClick={handleLogin} className="text-slate-500 hover:text-slate-700">
-                    Déjà un compte ?
-                  </Button>
-                </>
-              ) : (
-                <Button variant="outline" size="sm" onClick={handleLogout} className="text-slate-500 hover:text-slate-700">
-                  <LogOut className="w-4 h-4 mr-2" />
-                  Déconnexion
-                </Button>
+              {activeProfile && (
+                <div className="flex items-center gap-2 bg-slate-100 dark:bg-slate-800 px-3 py-1.5 rounded-md border border-slate-200 dark:border-slate-700">
+                  <span className="text-xs text-slate-500">Code d'accès :</span>
+                  <code className="font-mono font-bold text-slate-900 dark:text-white select-all">{activeProfile.id}</code>
+                </div>
               )}
+              <Button variant="outline" size="sm" onClick={handleLinkDevice} className="text-blue-600 border-blue-200 hover:bg-blue-50 dark:border-blue-900 dark:hover:bg-blue-900/30">
+                <Share2 className="w-4 h-4 mr-2" />
+                Lier un appareil
+              </Button>
             </div>
           </div>
         </header>
@@ -567,6 +580,10 @@ Réponds exclusivement par un tableau JSON, sans texte superflu :
                     <CardDescription>Plan personnalisé pour {activeProfile.name}.</CardDescription>
                   </div>
                   <div className="flex items-center gap-2">
+                    <Button variant="default" size="sm" onClick={() => generatePlan()} disabled={loading} className="bg-blue-600 hover:bg-blue-700 text-white">
+                      {loading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <RefreshCw className="w-4 h-4 mr-2" />}
+                      Recalculer
+                    </Button>
                     <Button variant="outline" size="sm" onClick={downloadPlan}>
                       <Download className="w-4 h-4 mr-2" />
                       Télécharger
@@ -679,6 +696,60 @@ Réponds exclusivement par un tableau JSON, sans texte superflu :
                               </p>
                             </div>
                           )}
+                          
+                          {/* Feedback / Bilan Section */}
+                          <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800/50">
+                            {session.isCompleted && session.feedback ? (
+                              <div className="bg-slate-50 dark:bg-slate-900/30 p-3 rounded-lg border border-slate-100 dark:border-slate-800">
+                                <div className="flex items-center gap-2 mb-1">
+                                  <Check className="w-4 h-4 text-green-500" />
+                                  <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Séance terminée</span>
+                                  <Badge variant="outline" className="ml-auto text-xs">RPE: {session.feedback.rpe}/10</Badge>
+                                </div>
+                                {session.feedback.comment && (
+                                  <p className="text-sm text-slate-600 dark:text-slate-400 mt-2 italic">"{session.feedback.comment}"</p>
+                                )}
+                              </div>
+                            ) : feedbackIndex === index ? (
+                              <div className="bg-white dark:bg-slate-950 p-3 rounded-lg border border-blue-200 dark:border-blue-900/50 shadow-sm space-y-3">
+                                <div>
+                                  <Label className="text-xs text-slate-500 font-semibold mb-1 block">Difficulté ressentie (RPE 1-10) :</Label>
+                                  <div className="flex items-center gap-3">
+                                    <input 
+                                      type="range" 
+                                      min="1" max="10" 
+                                      value={feedbackForm.rpe} 
+                                      onChange={e => setFeedbackForm({...feedbackForm, rpe: parseInt(e.target.value)})}
+                                      className="flex-1"
+                                    />
+                                    <span className="text-sm font-bold w-6 text-center">{feedbackForm.rpe}</span>
+                                  </div>
+                                </div>
+                                <div>
+                                  <Label className="text-xs text-slate-500 font-semibold mb-1 block">Commentaire (fatigue, sensations...) :</Label>
+                                  <Textarea 
+                                    value={feedbackForm.comment}
+                                    onChange={e => setFeedbackForm({...feedbackForm, comment: e.target.value})}
+                                    placeholder="Ex: Super sensations, ou Très fatigué sur la fin..."
+                                    rows={2}
+                                    className="text-sm resize-none"
+                                  />
+                                </div>
+                                <div className="flex gap-2 justify-end">
+                                  <Button variant="ghost" size="sm" onClick={() => setFeedbackIndex(null)} className="h-8 text-xs">
+                                    Annuler
+                                  </Button>
+                                  <Button variant="default" size="sm" onClick={() => saveFeedback(index)} className="h-8 text-xs bg-green-600 hover:bg-green-700 text-white">
+                                    <Check className="w-3 h-3 mr-1" /> Valider le bilan
+                                  </Button>
+                                </div>
+                              </div>
+                            ) : (
+                              <Button variant="ghost" size="sm" onClick={() => { setFeedbackIndex(index); setFeedbackForm({ rpe: 5, comment: '' }); }} className="text-xs text-slate-500 hover:text-blue-600">
+                                <MessageSquare className="w-3 h-3 mr-1" /> Faire le bilan de la séance
+                              </Button>
+                            )}
+                          </div>
                         </div>
                       )}
                     </div>

@@ -9,7 +9,17 @@
         "type": { "type": "string" },
         "desc": { "type": "string" },
         "locked": { "type": "boolean" },
-        "userWish": { "type": "string" }
+        "userWish": { "type": "string" },
+        "support": { "type": "string" },
+        "logic": { "type": "string" },
+        "coherenceWarning": { "type": "string" },
+        "feedback": {
+          "type": "object",
+          "properties": {
+            "rpe": { "type": "number", "description": "Rating of Perceived Exertion (1-10)" },
+            "comment": { "type": "string" }
+          }
+        }
       },
       "required": ["jour", "type", "desc", "locked"]
     },
@@ -45,8 +55,12 @@
       "description": "A user's training profile.",
       "type": "object",
       "properties": {
-        "id": { "type": "string" },
-        "userId": { "type": "string", "description": "The UID of the user who owns this profile." },
+        "id": { "type": "string", "description": "The unique sync code for this profile" },
+        "linkedUids": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Array of anonymous UIDs that have access to this profile"
+        },
         "name": { "type": "string" },
         "nbSeances": { "type": "number" },
         "mainGoals": { "type": "array", "items": { "$ref": "#/entities/Goal" } },
