@@ -359,10 +359,10 @@ export default function App() {
 
   const downloadPlan = () => {
     if (!activeProfile) return;
-    const downloadDates = getTwoWeeksDays(parseDate(currentWeekStart));
+    const downloadDates = getWeekDays(parseDate(currentWeekStart));
     const downloadSessions = downloadDates.map(date => activeProfile.plan.find(s => s.date === date) || { date, type: 'Repos', desc: 'Aucune séance prévue.' } as TrainingSession);
     
-    const textContent = `Programme d'entraînement - ${activeProfile.name} (Quinzaine du ${formatDisplayDate(currentWeekStart)})\n\n` +
+    const textContent = `Programme d'entraînement - ${activeProfile.name} (Semaine du ${formatDisplayDate(currentWeekStart)})\n\n` +
       downloadSessions.map(s => `${formatDisplayDate(s.date)} : ${s.type}\n${s.desc}\n`).join('\n');
     const blob = new Blob([textContent], { type: 'text/plain;charset=utf-8' });
     const url = URL.createObjectURL(blob);
@@ -520,7 +520,7 @@ Réponds exclusivement par un tableau JSON de 14 éléments (un pour chaque date
     return 'bg-zinc-100 text-zinc-700 border-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:border-zinc-700';
   };
 
-  const displayDates = getTwoWeeksDays(parseDate(currentWeekStart));
+  const displayDates = getWeekDays(parseDate(currentWeekStart));
   const displaySessions = displayDates.map(date => activeProfile?.plan.find(s => s.date === date) || { date, type: 'Repos', desc: 'Aucune séance prévue. Cliquez sur Générer 14 jours pour créer votre programme.', locked: false, support: 'Course à pied' } as TrainingSession);
 
   const activeSessionsCount = displaySessions.filter(s => !s.type.toLowerCase().includes('repos') && s.desc !== 'Aucune séance prévue. Cliquez sur Générer 14 jours pour créer votre programme.').length;
@@ -641,7 +641,7 @@ Réponds exclusivement par un tableau JSON de 14 éléments (un pour chaque date
                   </div>
                   <div>
                     <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400">Séances actives</p>
-                    <p className="text-2xl font-bold text-zinc-900 dark:text-white">{activeSessionsCount} <span className="text-sm font-normal text-zinc-500">/ 14 jours</span></p>
+                    <p className="text-2xl font-bold text-zinc-900 dark:text-white">{activeSessionsCount} <span className="text-sm font-normal text-zinc-500">/ 7 jours</span></p>
                   </div>
                 </CardContent>
               </Card>
@@ -671,16 +671,16 @@ Réponds exclusivement par un tableau JSON de 14 éléments (un pour chaque date
               </Card>
             </div>
 
-            {/* 14-Day Plan */}
+            {/* Weekly Plan */}
             <div className="flex items-center justify-between bg-white dark:bg-zinc-900 p-2 rounded-lg border border-zinc-200 dark:border-zinc-800 shadow-sm mb-4">
-              <Button variant="ghost" size="sm" onClick={() => setCurrentWeekStart(formatDate(addDays(parseDate(currentWeekStart), -14)))}>
-                <ChevronLeft className="w-4 h-4 mr-1" /> -14j
+              <Button variant="ghost" size="sm" onClick={() => setCurrentWeekStart(formatDate(addDays(parseDate(currentWeekStart), -7)))}>
+                <ChevronLeft className="w-4 h-4 mr-1" /> Précédent
               </Button>
               <span className="font-semibold text-zinc-700 dark:text-zinc-200 capitalize">
-                Quinzaine du {parseDate(currentWeekStart).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })}
+                Semaine du {parseDate(currentWeekStart).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })}
               </span>
-              <Button variant="ghost" size="sm" onClick={() => setCurrentWeekStart(formatDate(addDays(parseDate(currentWeekStart), 14)))}>
-                +14j <ChevronRight className="w-4 h-4 ml-1" />
+              <Button variant="ghost" size="sm" onClick={() => setCurrentWeekStart(formatDate(addDays(parseDate(currentWeekStart), 7)))}>
+                Suivant <ChevronRight className="w-4 h-4 ml-1" />
               </Button>
             </div>
 
