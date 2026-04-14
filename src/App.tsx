@@ -1,1174 +1,605 @@
-import { useState, useEffect } from 'react';
-import { GoogleGenAI, Type } from '@google/genai';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
-import { Switch } from '@/components/ui/switch';
-import { Badge } from '@/components/ui/badge';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Lock, Unlock, Loader2, Calendar, Settings2, Activity, Trophy, Flame, Mountain, Dumbbell, Plus, Trash2, Download, Users, UserPlus, History, Clock, Pencil, Check, X, Lightbulb, AlertTriangle, RefreshCw, MessageSquare, Share2, ChevronLeft, ChevronRight } from 'lucide-react';
-import { auth, db } from './firebase';
-import { onAuthStateChanged, User, signInAnonymously } from 'firebase/auth';
-import { collection, doc, setDoc, deleteDoc, onSnapshot, query, where, getDoc, updateDoc, arrayUnion } from 'firebase/firestore';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { Upload, Download, Plus, Trash2, Edit2, CheckCircle2, Circle, Calendar, Activity, AlignLeft, Save, FileSpreadsheet, Dumbbell, Trophy, LayoutDashboard, FileText, Flag } from 'lucide-react';
+import Papa from 'papaparse';
+import { format, parseISO, isValid, startOfWeek, addDays, differenceInDays, startOfDay } from 'date-fns';
+import { fr } from 'date-fns/locale';
 
-const parseDate = (dateStr: string) => {
-  if (!dateStr) return new Date();
-  const [y, m, d] = dateStr.split('-').map(Number);
-  return new Date(y, m - 1, d, 12, 0, 0);
-};
-
-const getStartOfWeek = (d: Date) => {
-  const date = new Date(d);
-  const day = date.getDay();
-  const diff = date.getDate() - day + (day === 0 ? -6 : 1);
-  date.setDate(diff);
-  date.setHours(0, 0, 0, 0);
-  return date;
-};
-
-const formatDate = (d: Date) => {
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-};
-
-const addDays = (d: Date, days: number) => {
-  const date = new Date(d);
-  date.setDate(date.getDate() + days);
-  return date;
-};
-
-const getWeekDays = (start: Date) => Array.from({length: 7}).map((_, i) => formatDate(addDays(start, i)));
-const getTwoWeeksDays = (start: Date) => Array.from({length: 14}).map((_, i) => formatDate(addDays(start, i)));
-
-const formatDisplayDate = (dateStr: string) => {
-  const d = parseDate(dateStr);
-  return d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'short' });
-};
-
-let aiClient: GoogleGenAI | null = null;
-let currentApiKey: string | null = null;
-
-const getAI = () => {
-  if (!aiClient) {
-    const apiKey = "AIzaSyDRuqEkYpOQjE5vg-LTKG2yGU78yA59Lek";
-    aiClient = new GoogleGenAI({ apiKey });
-  }
-  return aiClient;
-};
-
-interface TrainingSession {
+interface Session {
+  id: string;
   date: string;
   type: string;
-  desc: string;
-  locked: boolean;
-  userWish?: string;
-  support?: string;
-  logic?: string;
-  coherenceWarning?: string;
-  isCompleted?: boolean;
-  feedback?: {
-    rpe: number;
-    comment: string;
-  };
+  description: string;
+  completed: boolean;
 }
 
-interface Goal {
+interface Race {
   id: string;
   name: string;
   date: string;
-  distance: number | '';
-  elevation: number | '';
 }
-
-interface PastRace {
-  id: string;
-  name: string;
-  date: string;
-  distance: number | '';
-  elevation: number | '';
-  time: string;
-}
-
-interface UserProfile {
-  id: string;
-  linkedUids: string[];
-  name: string;
-  nbSeances: number;
-  mainGoals: Goal[];
-  secondaryGoals: Goal[];
-  pastRaces: PastRace[];
-  isAffutage: boolean;
-  plan: TrainingSession[];
-}
-
-const generateDefaultPlan = (startDateStr: string): TrainingSession[] => {
-  const start = parseDate(startDateStr);
-  const days = getWeekDays(start);
-  const types = ['Repos', 'EF', 'Repos', 'VMA', 'Repos', 'EF', 'Sortie Longue'];
-  const descs = ['Récupération', 'Endurance Fondamentale 45min', 'Récupération', 'Échauffement 20min + 10x400m + Retour au calme 10min', 'Récupération', 'Endurance Fondamentale 1h', 'Sortie Longue 1h30'];
-  return days.map((date, i) => ({
-    date,
-    type: types[i],
-    desc: descs[i],
-    locked: false,
-    support: 'Course à pied',
-    logic: 'Séance de base.'
-  }));
-};
-
-const generateShortId = () => Math.random().toString(36).substring(2, 8).toUpperCase();
-
-const defaultProfile = (userId: string): UserProfile => ({
-  id: generateShortId(),
-  linkedUids: [userId],
-  name: 'Mon Profil',
-  nbSeances: 4,
-  mainGoals: [{ id: '1', name: 'Trail des Crêtes', date: '2026-08-15', distance: 50, elevation: 2000 }],
-  secondaryGoals: [{ id: '1', name: 'Semi-marathon de préparation', date: '2026-06-10', distance: 21, elevation: 200 }],
-  pastRaces: [],
-  isAffutage: false,
-  plan: generateDefaultPlan(formatDate(getStartOfWeek(new Date())))
-});
 
 export default function App() {
-  const [user, setUser] = useState<User | null>(null);
-  const [isAuthReady, setIsAuthReady] = useState(false);
-  const [profiles, setProfiles] = useState<UserProfile[]>([]);
-  const [activeProfileId, setActiveProfileId] = useState<string>('');
-  const [loading, setLoading] = useState<boolean>(false);
-  const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<string>('dashboard');
-  const [currentWeekStart, setCurrentWeekStart] = useState<string>(formatDate(getStartOfWeek(new Date())));
-  const [editingDate, setEditingDate] = useState<string | null>(null);
-  const [feedbackDate, setFeedbackDate] = useState<string | null>(null);
-  const [editForm, setEditForm] = useState({ wish: '', support: 'Course à pied' });
-  const [feedbackForm, setFeedbackForm] = useState({ rpe: 5, comment: '' });
+  const [activeTab, setActiveTab] = useState<'programme' | 'courses' | 'import'>('programme');
+  
+  const [sessions, setSessions] = useState<Session[]>(() => {
+    const saved = localStorage.getItem('fitplan-sessions');
+    if (saved) {
+      try { return JSON.parse(saved); } catch (e) { return []; }
+    }
+    return [];
+  });
+
+  const [races, setRaces] = useState<Race[]>(() => {
+    const saved = localStorage.getItem('fitplan-races');
+    if (saved) {
+      try { return JSON.parse(saved); } catch (e) { return []; }
+    }
+    return [];
+  });
+
+  const [isEditing, setIsEditing] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState<Partial<Session>>({});
+  const [csvInput, setCsvInput] = useState('');
+  const [newRace, setNewRace] = useState({ name: '', date: '' });
+  
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
-      if (currentUser) {
-        setUser(currentUser);
-        setIsAuthReady(true);
-      } else {
-        try {
-          await signInAnonymously(auth);
-        } catch (err) {
-          console.error("Erreur d'authentification anonyme:", err);
-          setError("Impossible de se connecter à l'application.");
-        }
-      }
-    });
-    return () => unsubscribe();
-  }, []);
+    localStorage.setItem('fitplan-sessions', JSON.stringify(sessions));
+  }, [sessions]);
 
   useEffect(() => {
-    if (!isAuthReady || !user) {
-      setProfiles([]);
-      setActiveProfileId('');
-      return;
-    }
+    localStorage.setItem('fitplan-races', JSON.stringify(races));
+  }, [races]);
 
-    const q = query(collection(db, 'profiles'), where('linkedUids', 'array-contains', user.uid));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const loadedProfiles = snapshot.docs.map(doc => {
-        const data = doc.data() as any;
-        // Migration: si le plan contient "jour" au lieu de "date", on le convertit vers la semaine courante
-        if (data.plan && data.plan.length > 0 && data.plan[0].jour && !data.plan[0].date) {
-          const start = getStartOfWeek(new Date());
-          data.plan = data.plan.map((s: any, i: number) => {
-            const { jour, ...rest } = s;
-            return { ...rest, date: formatDate(addDays(start, i)) };
-          });
-        }
-        return data as UserProfile;
-      });
-      
-      if (loadedProfiles.length === 0) {
-        // Create default profile if none exists
-        const newProfile = defaultProfile(user.uid);
-        setDoc(doc(db, 'profiles', newProfile.id), newProfile);
-      } else {
-        setProfiles(loadedProfiles);
-        if (!activeProfileId || !loadedProfiles.find(p => p.id === activeProfileId)) {
-          setActiveProfileId(loadedProfiles[0].id);
-        }
-      }
-    }, (error) => {
-      console.error("Firestore Error: ", error);
-      setError("Erreur lors du chargement des profils.");
-    });
+  const processCsvData = (data: any[]) => {
+    const imported: Session[] = data.map((row: any) => ({
+      id: crypto.randomUUID(),
+      date: row.Date || row.date || '',
+      type: row.Type || row.type || '',
+      description: row.Description || row.description || row.Déroulement || row.deroulement || '',
+      completed: (row.Terminé || row.termine || row.Completed || '').toUpperCase() === 'OUI'
+    })).filter(s => s.date);
 
-    return () => unsubscribe();
-  }, [user, isAuthReady]);
-
-  const handleLinkDevice = async () => {
-    if (!user) return;
-    const code = prompt("Entrez le code d'accès à 6 caractères d'un autre appareil :");
-    if (!code) return;
-    
-    try {
-      const docRef = doc(db, 'profiles', code.toUpperCase());
-      const docSnap = await getDoc(docRef);
-      if (docSnap.exists()) {
-        await updateDoc(docRef, {
-          linkedUids: arrayUnion(user.uid)
-        });
-        alert("Appareil lié avec succès !");
-      } else {
-        alert("Code introuvable.");
-      }
-    } catch (err) {
-      console.error(err);
-      alert("Erreur lors de la liaison.");
-    }
-  };
-
-  const activeProfile = profiles.find(p => p.id === activeProfileId);
-
-  const updateProfile = async (updates: Partial<UserProfile>) => {
-    if (!activeProfile || !user) return;
-    try {
-      await updateDoc(doc(db, 'profiles', activeProfile.id), updates);
-    } catch (err) {
-      console.error(err);
-      setError("Erreur lors de la sauvegarde.");
-    }
-  };
-
-  const createNewProfile = async () => {
-    if (!user) return;
-    const newName = prompt('Nom du nouveau profil ?');
-    if (newName && newName.trim()) {
-      const newProfile: UserProfile = {
-        ...defaultProfile(user.uid),
-        id: generateShortId(),
-        name: newName.trim(),
-        mainGoals: [],
-        secondaryGoals: [],
-        pastRaces: []
-      };
-      try {
-        await setDoc(doc(db, 'profiles', newProfile.id), newProfile);
-        setActiveProfileId(newProfile.id);
-      } catch (err) {
-        console.error(err);
-        setError("Erreur lors de la création du profil.");
-      }
-    }
-  };
-
-  const deleteProfile = async (id: string) => {
-    if (profiles.length <= 1 || !user) return;
-    if (confirm('Voulez-vous vraiment supprimer ce profil ?')) {
-      try {
-        await deleteDoc(doc(db, 'profiles', id));
-        const remaining = profiles.filter(p => p.id !== id);
-        if (remaining.length > 0) {
-          setActiveProfileId(remaining[0].id);
-        }
-      } catch (err) {
-        console.error(err);
-        setError("Erreur lors de la suppression.");
-      }
-    }
-  };
-
-  const renameProfile = () => {
-    if (!activeProfile) return;
-    const newName = prompt('Nouveau nom du profil ?', activeProfile.name);
-    if (newName && newName.trim()) {
-      updateProfile({ name: newName.trim() });
-    }
-  };
-
-  const toggleLock = (date: string) => {
-    if (!activeProfile) return;
-    const newPlan = [...activeProfile.plan];
-    const index = newPlan.findIndex(s => s.date === date);
-    if (index >= 0) {
-      newPlan[index].locked = !newPlan[index].locked;
-      updateProfile({ plan: newPlan });
-    }
-  };
-
-  const startEdit = (date: string) => {
-    if (!activeProfile) return;
-    setEditingDate(date);
-    const session = activeProfile.plan.find(s => s.date === date);
-    setEditForm({
-      wish: session?.userWish || '',
-      support: session?.support || 'Course à pied'
+    setSessions(prev => {
+      // On ajoute les nouvelles séances aux anciennes (permet de compléter)
+      const combined = [...prev, ...imported];
+      return combined.sort((a, b) => a.date.localeCompare(b.date));
     });
   };
 
-  const saveEdit = async (date: string) => {
-    if (!activeProfile) return;
-    const newPlan = [...activeProfile.plan];
-    const index = newPlan.findIndex(s => s.date === date);
-    if (index >= 0) {
-      newPlan[index] = {
-        ...newPlan[index],
-        userWish: editForm.wish,
-        support: editForm.support,
-        locked: false // On déverrouille pour que l'IA puisse formater la séance selon le souhait
-      };
-    } else {
-      newPlan.push({
-        date,
-        type: 'Repos',
-        desc: '',
-        locked: false,
-        userWish: editForm.wish,
-        support: editForm.support
-      });
-    }
-    await updateProfile({ plan: newPlan });
-    setEditingDate(null);
-    
-    // On relance la génération pour adapter le reste de la semaine
-    await generatePlan(newPlan, currentWeekStart);
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    Papa.parse(file, {
+      header: true,
+      skipEmptyLines: true,
+      complete: (results) => {
+        processCsvData(results.data);
+        if (fileInputRef.current) fileInputRef.current.value = '';
+        setActiveTab('programme');
+      }
+    });
   };
 
-  const saveFeedback = async (date: string) => {
-    if (!activeProfile) return;
-    const newPlan = [...activeProfile.plan];
-    const index = newPlan.findIndex(s => s.date === date);
-    if (index >= 0) {
-      newPlan[index] = {
-        ...newPlan[index],
-        isCompleted: true,
-        feedback: {
-          rpe: feedbackForm.rpe,
-          comment: feedbackForm.comment
-        }
-      };
-      await updateProfile({ plan: newPlan });
-      setFeedbackDate(null);
-      
-      // On relance la génération pour adapter le reste de la semaine suite au bilan
-      await generatePlan(newPlan, currentWeekStart);
-    } else {
-      setFeedbackDate(null);
-    }
+  const handleTextCsvImport = () => {
+    if (!csvInput.trim()) return;
+    Papa.parse(csvInput, {
+      header: true,
+      skipEmptyLines: true,
+      complete: (results) => {
+        processCsvData(results.data);
+        setCsvInput('');
+        setActiveTab('programme');
+      }
+    });
   };
 
-  const downloadPlan = () => {
-    if (!activeProfile) return;
-    const downloadDates = getWeekDays(parseDate(currentWeekStart));
-    const downloadSessions = downloadDates.map(date => activeProfile.plan.find(s => s.date === date) || { date, type: 'Repos', desc: 'Aucune séance prévue.' } as TrainingSession);
-    
-    const textContent = `Programme d'entraînement - ${activeProfile.name} (Semaine du ${formatDisplayDate(currentWeekStart)})\n\n` +
-      downloadSessions.map(s => `${formatDisplayDate(s.date)} : ${s.type}\n${s.desc}\n`).join('\n');
-    const blob = new Blob([textContent], { type: 'text/plain;charset=utf-8' });
+  const handleExport = () => {
+    const data = sessions.map(s => ({
+      Date: s.date,
+      Type: s.type,
+      Description: s.description,
+      Terminé: s.completed ? 'OUI' : 'NON'
+    }));
+    const csv = Papa.unparse(data);
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `planning-${activeProfile.name.replace(/\s+/g, '-').toLowerCase()}-${currentWeekStart}.txt`;
+    link.setAttribute('download', 'programme_entrainement.csv');
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    URL.revokeObjectURL(url);
   };
 
-  const generatePlan = async (planToAdapt: TrainingSession[] = activeProfile?.plan || [], targetWeekStart: string = currentWeekStart) => {
-    if (!activeProfile) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const generationDates = getTwoWeeksDays(parseDate(targetWeekStart));
-      const currentSessions = generationDates.map(date => planToAdapt.find(s => s.date === date) || { date, type: 'Repos', desc: '', locked: false });
+  // Sessions Management
+  const addSession = (dateStr?: string | React.MouseEvent) => {
+    const finalDate = typeof dateStr === 'string' ? dateStr : format(new Date(), 'yyyy-MM-dd');
+    const newSession: Session = {
+      id: crypto.randomUUID(),
+      date: finalDate,
+      type: 'Nouvelle séance',
+      description: '',
+      completed: false
+    };
+    setSessions(prev => [...prev, newSession].sort((a, b) => a.date.localeCompare(b.date)));
+    startEditing(newSession);
+  };
 
-      const coursesText = `
-Objectifs Majeurs (A) :
-${activeProfile.mainGoals.length > 0 ? activeProfile.mainGoals.map(g => `- ${g.name || 'Non défini'} prévu le ${g.date || 'Non défini'} - Distance: ${g.distance || 0}km, Dénivelé: ${g.elevation || 0}m D+`).join('\n') : 'Aucun'}
+  const startEditing = (session: Session) => {
+    setIsEditing(session.id);
+    setEditForm(session);
+  };
 
-Objectifs Secondaires (B) :
-${activeProfile.secondaryGoals.length > 0 ? activeProfile.secondaryGoals.map(g => `- ${g.name || 'Non défini'} prévu le ${g.date || 'Non défini'} - Distance: ${g.distance || 0}km, Dénivelé: ${g.elevation || 0}m D+`).join('\n') : 'Aucun'}
-      `.trim();
+  const saveEdit = () => {
+    if (!isEditing) return;
+    setSessions(prev => prev.map(s => s.id === isEditing ? { ...s, ...editForm } as Session : s).sort((a, b) => a.date.localeCompare(b.date)));
+    setIsEditing(null);
+  };
 
-      const pastRacesText = activeProfile.pastRaces.length > 0 
-        ? activeProfile.pastRaces.map(r => `- ${r.name} (${r.date}) : ${r.distance}km, ${r.elevation}m D+ en ${r.time}`).join('\n')
-        : 'Aucun historique renseigné.';
+  const cancelEdit = () => {
+    setIsEditing(null);
+    setEditForm({});
+  };
 
-      const prompt = `
-### CONFIGURATION SYSTÈME
-- ROLE: Coach Expert en Endurance (Route, Trail, Ultra-Trail)
-
-### MISSION
-Tu es l'intelligence centrale d'un logiciel de planification. Tu dois générer des entraînements pour les 14 jours du ${generationDates[0]} au ${generationDates[13]}.
-
-### EXPERTISE ROUTE & ULTRA-TRAIL
-1. ROUTE (5km au Marathon) : Travail de VMA, seuil anaérobie, et allures cibles (AS10, AS21, AS42).
-2. TRAIL & ULTRA-TRAIL : 
-   - Gestion du dénivelé positif (D+) et négatif (D-).
-   - Séances de côtes, rando-course, et week-ends chocs (blocs de 2 jours).
-   - Pour les Ultras (> 80km), inclus des conseils sur la nutrition et le matériel dans la description.
-
-### HISTORIQUE DU COUREUR (Niveau et Expérience)
-${pastRacesText}
-
-### RETOURS SUR LES SÉANCES PASSÉES (BILAN)
-Prends en compte ces retours pour adapter la suite de la semaine (ex: si RPE élevé > 8, allège la suite) :
-${planToAdapt.filter(s => s.isCompleted && s.feedback).slice(-10).map(s => `- ${s.date} (${s.type}) : Difficulté ressentie (RPE) = ${s.feedback?.rpe}/10. Commentaire : "${s.feedback?.comment}"`).join('\n') || 'Aucun bilan récent.'}
-
-### LOGIQUE D'ADAPTATION (PARAMÈTRES)
-- "nbSeances" : ${activeProfile.nbSeances}. TU DOIS ABSOLUMENT PLACER EXACTEMENT ${activeProfile.nbSeances} SÉANCES D'ENTRAÎNEMENT PAR SEMAINE (soit ${activeProfile.nbSeances * 2} séances sur les 14 jours). Les autres jours DOIVENT OBLIGATOIREMENT être de type "Repos".
-- "courses" : ${coursesText}
-- "affutage" : ${activeProfile.isAffutage ? 'Oui (Réduis le volume de 50% la semaine précédant un objectif A)' : 'Non'}
-- "locked" : Si une séance dans le planning envoyé est "locked": true, tu ne la modifies JAMAIS. Tu adaptes les autres jours pour garder une charge cohérente.
-
-### CONTRAINTES UTILISATEUR (SOUHAITS ET SUPPORTS)
-Dans le planning actuel fourni, certaines journées contiennent un champ "userWish" et/ou "support". 
-- Si "userWish" est présent, tu DOIS ABSOLUMENT créer la séance de ce jour en respectant ce souhait (ex: "sortie longue 20km"). 
-- Si "support" est différent de "Course à pied" (ex: Vélo, Natation, Renforcement), tu dois adapter le type et la description pour ce sport.
-- Tu dois ensuite adapter intelligemment le reste de la semaine autour de ces contraintes.
-- Si le souhait de l'utilisateur te semble incohérent ou risqué par rapport à la logique d'entraînement (ex: placer une sortie longue la veille d'une course, ou ne pas respecter de repos après une grosse séance), tu DOIS remplir le champ "coherenceWarning" pour l'avertir, tout en appliquant quand même son souhait.
-
-### PLANNING ACTUEL (à adapter)
-${JSON.stringify(currentSessions, null, 2)}
-
-### FORMAT DE SORTIE (STRICT JSON)
-Réponds exclusivement par un tableau JSON de 14 éléments (un pour chaque date demandée) :
-[
-  {
-    "date": "YYYY-MM-DD",
-    "type": "Repos | EF | VMA | Seuil | Côtes | Sortie Longue | Rando-course | Croisé | Renforcement",
-    "support": "Course à pied | Vélo | Natation | Renforcement | Autre",
-    "desc": "Description détaillée (Durée, Intensité, D+)",
-    "logic": "Explication pédagogique courte : pourquoi cette séance est placée ici dans la semaine ?",
-    "coherenceWarning": "Avertissement si le souhait est incohérent (laisser vide si tout va bien)",
-    "locked": false
-  }
-]
-      `;
-
-      const ai = getAI();
-      const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: prompt,
-        config: {
-          responseMimeType: 'application/json',
-          responseSchema: {
-            type: Type.ARRAY,
-            items: {
-              type: Type.OBJECT,
-              properties: {
-                date: { type: Type.STRING },
-                type: { type: Type.STRING },
-                support: { type: Type.STRING },
-                desc: { type: Type.STRING },
-                logic: { type: Type.STRING },
-                coherenceWarning: { type: Type.STRING },
-                locked: { type: Type.BOOLEAN },
-              },
-              required: ['date', 'type', 'support', 'desc', 'logic', 'locked'],
-            },
-          },
-        },
-      });
-
-      if (response.text) {
-        const generatedPlan = JSON.parse(response.text);
-        
-        // Réinjecter les données utilisateur (souhaits, bilans) qui ne doivent pas être perdues
-        const newPlan = generatedPlan.map((session: any, index: number) => {
-          const date = generationDates[index] || session.date; // Sécurité : forcer la date
-          const originalSession = planToAdapt.find(s => s.date === date);
-          
-          // Ne jamais écraser une séance verrouillée ou déjà complétée
-          if (originalSession?.locked || originalSession?.isCompleted) {
-            return originalSession;
-          }
-          
-          return {
-            ...session,
-            date: date,
-            userWish: originalSession?.userWish || '',
-            support: session.support || originalSession?.support || 'Course à pied',
-            isCompleted: originalSession?.isCompleted || false,
-            feedback: originalSession?.feedback
-          };
-        });
-        
-        // Fusionner le nouveau plan de la semaine avec le plan global
-        const generatedDates = newPlan.map((s: any) => s.date);
-        const filteredPlan = planToAdapt.filter(s => !generatedDates.includes(s.date));
-        const finalPlan = [...filteredPlan, ...newPlan];
-        
-        updateProfile({ plan: finalPlan });
-        setActiveTab('dashboard');
-      }
-    } catch (err: any) {
-      console.error("Erreur de génération:", err);
-      let errorMessage = err.message || 'Une erreur est survenue lors de la génération.';
-      
-      if (errorMessage.includes('RESOURCE_EXHAUSTED') || errorMessage.includes('429') || errorMessage.includes('quota')) {
-        errorMessage = "Le système d'IA est actuellement surchargé (limite de requêtes atteinte). Veuillez patienter une minute avant de réessayer.";
-      } else if (errorMessage.includes('SERVICE_DISABLED') || errorMessage.includes('has not been used in project')) {
-        errorMessage = "Le service IA n'est pas activé correctement en arrière-plan.";
-      } else if (errorMessage.includes('API key not valid') || errorMessage.includes('API_KEY_INVALID')) {
-        errorMessage = "La clé API intégrée est invalide.";
-      }
-      
-      setError(errorMessage);
-    } finally {
-      setLoading(false);
+  const deleteSession = (id: string) => {
+    if (confirm('Supprimer cette séance ?')) {
+      setSessions(prev => prev.filter(s => s.id !== id));
     }
   };
 
-  const getTypeColor = (type: string) => {
-    const t = type.toLowerCase();
-    if (t.includes('repos')) return 'bg-zinc-100 text-zinc-600 border-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:border-zinc-700';
-    if (t.includes('ef')) return 'bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400 dark:border-emerald-800';
-    if (t.includes('vma') || t.includes('seuil')) return 'bg-rose-100 text-rose-700 border-rose-200 dark:bg-rose-900/30 dark:text-rose-400 dark:border-rose-800';
-    if (t.includes('longue') || t.includes('rando')) return 'bg-indigo-100 text-indigo-700 border-indigo-200 dark:bg-indigo-900/30 dark:text-indigo-400 dark:border-indigo-800';
-    if (t.includes('côte') || t.includes('cote')) return 'bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-400 dark:border-amber-800';
-    return 'bg-zinc-100 text-zinc-700 border-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:border-zinc-700';
+  const toggleCompleted = (id: string) => {
+    setSessions(prev => prev.map(s => s.id === id ? { ...s, completed: !s.completed } : s));
   };
 
-  const displayDates = getWeekDays(parseDate(currentWeekStart));
-  const displaySessions = displayDates.map(date => activeProfile?.plan.find(s => s.date === date) || { date, type: 'Repos', desc: 'Aucune séance prévue. Cliquez sur Générer 14 jours pour créer votre programme.', locked: false, support: 'Course à pied' } as TrainingSession);
+  // Races Management
+  const handleAddRace = () => {
+    if (!newRace.name || !newRace.date) return;
+    setRaces(prev => [...prev, { id: crypto.randomUUID(), ...newRace }].sort((a, b) => a.date.localeCompare(b.date)));
+    setNewRace({ name: '', date: '' });
+  };
 
-  const activeSessionsCount = displaySessions.filter(s => !s.type.toLowerCase().includes('repos') && s.desc !== 'Aucune séance prévue. Cliquez sur Générer 14 jours pour créer votre programme.').length;
-  const intenseCount = displaySessions.filter(s => s.type.toLowerCase().match(/vma|seuil|côte|cote/)).length;
-  const longCount = displaySessions.filter(s => s.type.toLowerCase().match(/longue|rando/)).length;
+  const deleteRace = (id: string) => {
+    if (confirm('Supprimer cette course ?')) {
+      setRaces(prev => prev.filter(r => r.id !== id));
+    }
+  };
 
-  if (error && (!isAuthReady || !activeProfile)) {
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-zinc-50 dark:bg-zinc-950 p-4 text-center space-y-4">
-        <div className="p-4 bg-rose-100 text-rose-700 rounded-full dark:bg-rose-900/30 dark:text-rose-400">
-          <X className="w-8 h-8" />
-        </div>
-        <h2 className="text-xl font-bold text-zinc-900 dark:text-white">Une erreur est survenue</h2>
-        <p className="text-zinc-600 dark:text-zinc-400 max-w-md">{error}</p>
-        <p className="text-sm text-zinc-500 dark:text-zinc-500 max-w-md">
-          Si vous utilisez Firebase, assurez-vous d'avoir activé le fournisseur de connexion "Anonyme" (Anonymous) dans la console Firebase (Authentication {'>'} Sign-in method).
-        </p>
-      </div>
-    );
-  }
+  // Group sessions by week
+  const weeks = useMemo(() => {
+    const validSessions = sessions.filter(s => isValid(parseISO(s.date)));
+    
+    if (validSessions.length === 0) {
+      const currentWeekStart = startOfWeek(new Date(), { weekStartsOn: 1 });
+      const weekDays = Array.from({ length: 7 }).map((_, i) => addDays(currentWeekStart, i));
+      return [{
+        start: currentWeekStart,
+        end: addDays(currentWeekStart, 6),
+        days: weekDays.map(day => ({
+          date: day,
+          dateStr: format(day, 'yyyy-MM-dd'),
+          sessions: []
+        }))
+      }];
+    }
 
-  if (!isAuthReady || !user) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-zinc-50 dark:bg-zinc-950">
-        <Loader2 className="w-8 h-8 animate-spin text-indigo-600" />
-      </div>
-    );
-  }
+    const groups = new Map<string, Session[]>();
+    validSessions.forEach(s => {
+      const d = parseISO(s.date);
+      const ws = startOfWeek(d, { weekStartsOn: 1 });
+      const key = format(ws, 'yyyy-MM-dd');
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push(s);
+    });
 
-  if (!activeProfile) {
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-zinc-50 dark:bg-zinc-950 space-y-4">
-        <Loader2 className="w-8 h-8 animate-spin text-indigo-600" />
-        <p className="text-zinc-500 animate-pulse">Création de votre profil...</p>
-      </div>
-    );
-  }
+    const sortedWeekKeys = Array.from(groups.keys()).sort();
+    
+    return sortedWeekKeys.map(key => {
+      const ws = parseISO(key);
+      const weekDays = Array.from({ length: 7 }).map((_, i) => addDays(ws, i));
+      return {
+        start: ws,
+        end: addDays(ws, 6),
+        days: weekDays.map(day => ({
+          date: day,
+          dateStr: format(day, 'yyyy-MM-dd'),
+          sessions: groups.get(key)!.filter(s => s.date === format(day, 'yyyy-MM-dd'))
+        }))
+      };
+    });
+  }, [sessions]);
 
   return (
-    <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 p-4 md:p-8 font-sans selection:bg-indigo-100 selection:text-indigo-900">
-      <div className="max-w-5xl mx-auto space-y-8">
-        
-        <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-zinc-200 dark:border-zinc-800">
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 bg-indigo-600 text-white rounded-xl shadow-sm ring-1 ring-indigo-600/10">
-              <Activity className="w-6 h-6" />
+    <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 font-sans selection:bg-emerald-500/30">
+      {/* Header */}
+      <header className="bg-white dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 sticky top-0 z-10">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 bg-emerald-500 rounded-lg flex items-center justify-center text-white shadow-sm">
+              <Dumbbell className="w-5 h-5" />
             </div>
-            <div>
-              <h1 className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-white">Coach Endurance IA</h1>
-              <p className="text-sm text-zinc-500 dark:text-zinc-400 font-medium">Planificateur Route, Trail & Ultra-Trail</p>
-            </div>
+            <h1 className="text-xl font-bold tracking-tight hidden md:block">FitPlan Studio</h1>
           </div>
           
-          <div className="flex items-center gap-2 flex-wrap">
-            <div className="flex items-center gap-2 bg-white dark:bg-zinc-900 p-2 rounded-lg border border-zinc-200 dark:border-zinc-800 shadow-sm">
-              <Users className="w-4 h-4 text-zinc-500 ml-2" />
-              <select
-                className="bg-transparent border-none focus:ring-0 text-sm font-medium cursor-pointer outline-none text-zinc-700 dark:text-zinc-300"
-                value={activeProfileId}
-                onChange={(e) => setActiveProfileId(e.target.value)}
-              >
-                {profiles.map(p => (
-                  <option key={p.id} value={p.id}>{p.name}</option>
-                ))}
-              </select>
-              <div className="h-4 w-px bg-zinc-200 dark:bg-zinc-700 mx-1"></div>
-              <Button variant="ghost" size="icon" className="h-8 w-8 hover:bg-zinc-100 dark:hover:bg-zinc-800" onClick={renameProfile} title="Renommer le profil">
-                <Settings2 className="w-4 h-4 text-zinc-500" />
-              </Button>
-              <Button variant="ghost" size="icon" className="h-8 w-8 hover:bg-zinc-100 dark:hover:bg-zinc-800" onClick={createNewProfile} title="Nouveau profil">
-                <UserPlus className="w-4 h-4 text-zinc-500" />
-              </Button>
-              {profiles.length > 1 && (
-                <Button variant="ghost" size="icon" className="h-8 w-8 hover:text-rose-500" onClick={() => deleteProfile(activeProfileId)} title="Supprimer le profil">
-                  <Trash2 className="w-4 h-4" />
-                </Button>
-              )}
-            </div>
-            
-            <div className="flex items-center gap-2">
-              {activeProfile && (
-                <div className="flex items-center gap-2 bg-zinc-100 dark:bg-zinc-800 px-3 py-1.5 rounded-md border border-zinc-200 dark:border-zinc-700">
-                  <span className="text-xs text-zinc-500">Code d'accès :</span>
-                  <code className="font-mono font-bold text-zinc-900 dark:text-white select-all">{activeProfile.id}</code>
-                </div>
-              )}
-              <Button variant="outline" size="sm" onClick={handleLinkDevice} className="text-indigo-600 border-indigo-200 hover:bg-indigo-50 dark:border-indigo-900 dark:hover:bg-indigo-900/30">
-                <Share2 className="w-4 h-4 mr-2" />
-                Lier un appareil
-              </Button>
-            </div>
+          <nav className="flex items-center gap-1 sm:gap-2">
+            <button 
+              onClick={() => setActiveTab('programme')} 
+              className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === 'programme' ? 'bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100' : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100'}`}
+            >
+              <LayoutDashboard className="w-4 h-4" />
+              <span className="hidden sm:inline">Programme</span>
+            </button>
+            <button 
+              onClick={() => setActiveTab('courses')} 
+              className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === 'courses' ? 'bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100' : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100'}`}
+            >
+              <Flag className="w-4 h-4" />
+              <span className="hidden sm:inline">Courses</span>
+            </button>
+            <button 
+              onClick={() => setActiveTab('import')} 
+              className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === 'import' ? 'bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100' : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100'}`}
+            >
+              <FileSpreadsheet className="w-4 h-4" />
+              <span className="hidden sm:inline">Import CSV</span>
+            </button>
+          </nav>
+
+          <div className="flex items-center">
+            <button 
+              onClick={handleExport}
+              className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg transition-colors shadow-sm"
+            >
+              <Download className="w-4 h-4" />
+              <span className="hidden sm:inline">Exporter</span>
+            </button>
           </div>
-        </header>
+        </div>
+      </header>
 
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-          <TabsList className="grid w-full max-w-2xl grid-cols-3">
-            <TabsTrigger value="dashboard" className="flex items-center gap-2">
-              <Calendar className="w-4 h-4" />
-              <span className="hidden sm:inline">Dashboard</span>
-            </TabsTrigger>
-            <TabsTrigger value="parameters" className="flex items-center gap-2">
-              <Settings2 className="w-4 h-4" />
-              <span className="hidden sm:inline">Objectifs</span>
-            </TabsTrigger>
-            <TabsTrigger value="history" className="flex items-center gap-2">
-              <History className="w-4 h-4" />
-              <span className="hidden sm:inline">Historique</span>
-            </TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="dashboard" className="space-y-6 animate-in fade-in-50 duration-500">
-            {/* Stats Row */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <Card className="border-zinc-200 dark:border-zinc-800 shadow-sm">
-                <CardContent className="p-6 flex items-center gap-4">
-                  <div className="p-3 bg-indigo-100 text-indigo-600 dark:bg-indigo-900/30 dark:text-indigo-400 rounded-full">
-                    <Dumbbell className="w-6 h-6" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400">Séances actives</p>
-                    <p className="text-2xl font-bold text-zinc-900 dark:text-white">{activeSessionsCount} <span className="text-sm font-normal text-zinc-500">/ 7 jours</span></p>
-                  </div>
-                </CardContent>
-              </Card>
-              
-              <Card className="border-zinc-200 dark:border-zinc-800 shadow-sm">
-                <CardContent className="p-6 flex items-center gap-4">
-                  <div className="p-3 bg-rose-100 text-rose-600 dark:bg-rose-900/30 dark:text-rose-400 rounded-full">
-                    <Flame className="w-6 h-6" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400">Séances intenses</p>
-                    <p className="text-2xl font-bold text-zinc-900 dark:text-white">{intenseCount} <span className="text-sm font-normal text-zinc-500">séance(s)</span></p>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card className="border-zinc-200 dark:border-zinc-800 shadow-sm">
-                <CardContent className="p-6 flex items-center gap-4">
-                  <div className="p-3 bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400 rounded-full">
-                    <Mountain className="w-6 h-6" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400">Sorties longues</p>
-                    <p className="text-2xl font-bold text-zinc-900 dark:text-white">{longCount} <span className="text-sm font-normal text-zinc-500">séance(s)</span></p>
-                  </div>
-                </CardContent>
-              </Card>
+      {/* Main Content */}
+      <main className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        
+        {/* TAB: PROGRAMME */}
+        {activeTab === 'programme' && (
+          <div className="space-y-8">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-2xl font-bold tracking-tight">Mon Programme</h2>
+                <p className="text-zinc-500 dark:text-zinc-400 mt-1">Gérez vos semaines d'entraînement.</p>
+              </div>
+              <button 
+                onClick={addSession}
+                className="flex items-center gap-2 px-4 py-2 bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 font-medium rounded-lg hover:bg-zinc-800 dark:hover:bg-zinc-100 transition-colors shadow-sm"
+              >
+                <Plus className="w-4 h-4" />
+                <span className="hidden sm:inline">Ajouter une séance</span>
+                <span className="sm:hidden">Ajouter</span>
+              </button>
             </div>
 
-            {/* Weekly Plan */}
-            <div className="flex items-center justify-between bg-white dark:bg-zinc-900 p-2 rounded-lg border border-zinc-200 dark:border-zinc-800 shadow-sm mb-4">
-              <Button variant="ghost" size="sm" onClick={() => setCurrentWeekStart(formatDate(addDays(parseDate(currentWeekStart), -7)))}>
-                <ChevronLeft className="w-4 h-4 mr-1" /> Précédent
-              </Button>
-              <span className="font-semibold text-zinc-700 dark:text-zinc-200 capitalize">
-                Semaine du {parseDate(currentWeekStart).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })}
-              </span>
-              <Button variant="ghost" size="sm" onClick={() => setCurrentWeekStart(formatDate(addDays(parseDate(currentWeekStart), 7)))}>
-                Suivant <ChevronRight className="w-4 h-4 ml-1" />
-              </Button>
-            </div>
-
-            <Card className="border-zinc-200 dark:border-zinc-800 shadow-sm overflow-hidden">
-              <CardHeader className="bg-zinc-50/50 dark:bg-zinc-900/20 border-b border-zinc-100 dark:border-zinc-800/50 pb-4">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                  <div>
-                    <CardTitle className="text-lg">Programme de la semaine</CardTitle>
-                    <CardDescription>Plan personnalisé pour {activeProfile.name}.</CardDescription>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Button variant="default" size="sm" onClick={() => generatePlan(activeProfile.plan, currentWeekStart)} disabled={loading} className="bg-indigo-600 hover:bg-indigo-700 text-white">
-                      {loading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <RefreshCw className="w-4 h-4 mr-2" />}
-                      Générer 14 jours
-                    </Button>
-                    <Button variant="outline" size="sm" onClick={downloadPlan}>
-                      <Download className="w-4 h-4 mr-2" />
-                      Télécharger
-                    </Button>
-                    <Button variant="outline" size="sm" onClick={() => setActiveTab('parameters')} className="hidden sm:flex">
-                      <Settings2 className="w-4 h-4 mr-2" />
-                      Modifier
-                    </Button>
-                  </div>
-                </div>
-                {error && (
-                  <div className="mt-4 p-3 text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded-lg dark:bg-rose-900/20 dark:border-rose-800 dark:text-rose-400">
-                    {error}
-                  </div>
-                )}
-              </CardHeader>
-              <CardContent className="p-0">
-                <div className="divide-y divide-zinc-100 dark:divide-zinc-800/50">
-                  {displaySessions.map((session, index) => (
-                    <div 
-                      key={session.date} 
-                      className={`p-4 sm:p-5 flex flex-col sm:flex-row gap-4 transition-colors hover:bg-zinc-50/50 dark:hover:bg-zinc-900/50 ${session.locked ? 'bg-zinc-50 dark:bg-zinc-900/20' : ''}`}
-                    >
-                      {/* Day & Lock */}
-                      <div className="sm:w-32 flex items-center sm:items-start justify-between sm:flex-col gap-2 shrink-0">
-                        <span className="font-bold text-zinc-700 dark:text-zinc-200 capitalize">{formatDisplayDate(session.date)}</span>
-                        <Button 
-                          variant="ghost" 
-                          size="sm" 
-                          className={`h-8 px-2 text-xs ${session.locked ? 'text-amber-600 hover:text-amber-700 hover:bg-amber-50 dark:text-amber-500 dark:hover:bg-amber-950/50' : 'text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300'}`}
-                          onClick={() => toggleLock(session.date)}
-                        >
-                          {session.locked ? (
-                            <><Lock className="w-3 h-3 mr-1" /> Verrouillé</>
-                          ) : (
-                            <><Unlock className="w-3 h-3 mr-1" /> Libre</>
-                          )}
-                        </Button>
+            {/* Races Countdown Banner */}
+            {races.length > 0 && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                {races.map(race => {
+                  const days = differenceInDays(parseISO(race.date), startOfDay(new Date()));
+                  return (
+                    <div key={race.id} className="bg-white dark:bg-zinc-900 p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 flex items-center gap-4 shadow-sm">
+                      <div className="w-10 h-10 bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-500 rounded-full flex items-center justify-center flex-shrink-0">
+                        <Trophy className="w-5 h-5" />
                       </div>
+                      <div className="min-w-0">
+                        <h4 className="font-bold text-zinc-900 dark:text-zinc-100 truncate">{race.name}</h4>
+                        <p className="text-sm text-zinc-500 dark:text-zinc-400 truncate">
+                          {format(parseISO(race.date), 'd MMM yyyy', {locale: fr})} • <span className="font-medium text-amber-600 dark:text-amber-500">{days > 0 ? `J-${days}` : days === 0 ? "Aujourd'hui" : 'Terminée'}</span>
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
 
-                      {/* Content */}
-                      {editingDate === session.date ? (
-                        <div className="flex-1 space-y-4 bg-white dark:bg-zinc-950 p-4 rounded-lg border border-zinc-200 dark:border-zinc-800 shadow-sm">
-                          <div className="space-y-2">
-                            <Label className="text-xs text-zinc-500 font-semibold">Type de support :</Label>
-                            <select 
-                              className="w-full text-sm border border-zinc-200 rounded-md p-2 dark:bg-zinc-900 dark:border-zinc-800"
-                              value={editForm.support}
-                              onChange={e => setEditForm({ ...editForm, support: e.target.value })}
-                            >
-                              <option value="Course à pied">Course à pied</option>
-                              <option value="Vélo">Vélo / Cyclisme</option>
-                              <option value="Natation">Natation</option>
-                              <option value="Renforcement">Renforcement musculaire</option>
-                              <option value="Autre">Autre (préciser dans le souhait)</option>
-                            </select>
+            <div className="space-y-10">
+              {weeks.map((week) => (
+                <div key={format(week.start, 'yyyy-MM-dd')} className="bg-white dark:bg-zinc-900 rounded-2xl shadow-sm border border-zinc-200 dark:border-zinc-800 overflow-hidden">
+                  {/* Week Header */}
+                  <div className="bg-zinc-50 dark:bg-zinc-950/50 px-6 py-4 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between">
+                    <h3 className="text-lg font-bold text-zinc-900 dark:text-zinc-100 capitalize">
+                      Semaine du {format(week.start, 'd MMM', { locale: fr })} au {format(week.end, 'd MMM yyyy', { locale: fr })}
+                    </h3>
+                  </div>
+
+                  {/* Days List */}
+                  <div className="divide-y divide-zinc-100 dark:divide-zinc-800/50">
+                    {week.days.map(day => (
+                      <div key={day.dateStr} className="flex flex-col sm:flex-row p-4 sm:p-6 gap-4 sm:gap-6 hover:bg-zinc-50/30 dark:hover:bg-zinc-800/10 transition-colors">
+                        {/* Date Column */}
+                        <div className="sm:w-32 flex-shrink-0 flex flex-row sm:flex-col items-baseline sm:items-start gap-2 sm:gap-0">
+                          <div className="text-sm font-medium text-zinc-500 dark:text-zinc-400 capitalize">
+                            {format(day.date, 'EEEE', { locale: fr })}
                           </div>
-                          <div className="space-y-2">
-                            <Label className="text-xs text-zinc-500 font-semibold">Votre souhait pour le {formatDisplayDate(session.date)} :</Label>
-                            <Textarea 
-                              value={editForm.wish} 
-                              onChange={e => setEditForm({ ...editForm, wish: e.target.value })} 
-                              placeholder="Ex: Je veux faire une sortie longue de 20km, ou Repos forcé..."
-                              rows={2}
-                              className="text-sm resize-none"
-                            />
-                          </div>
-                          <div className="flex gap-2 justify-end pt-2">
-                            <Button variant="ghost" size="sm" onClick={() => setEditingDate(null)} className="h-8 text-xs">
-                              <X className="w-3 h-3 mr-1" /> Annuler
-                            </Button>
-                            <Button variant="default" size="sm" onClick={() => saveEdit(session.date)} className="h-8 text-xs bg-indigo-600 hover:bg-indigo-700 text-white">
-                              <Check className="w-3 h-3 mr-1" /> Adapter la semaine
-                            </Button>
+                          <div className="text-xl sm:text-2xl font-bold text-zinc-900 dark:text-zinc-100">
+                            {format(day.date, 'd MMM', { locale: fr })}
                           </div>
                         </div>
-                      ) : (
-                        <div className="flex-1 space-y-2">
-                          <div className="flex items-center justify-between gap-2">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <Badge variant="outline" className={`font-medium border ${getTypeColor(session.type)}`}>
-                                {session.type}
-                              </Badge>
-                              {session.support && session.support !== 'Course à pied' && (
-                                <Badge variant="secondary" className="bg-teal-100 text-teal-700 border-teal-200 dark:bg-teal-900/30 dark:text-teal-400 dark:border-teal-800 text-xs">
-                                  {session.support}
-                                </Badge>
-                              )}
-                              {session.userWish && (
-                                <Badge variant="secondary" className="bg-purple-100 text-purple-700 border-purple-200 dark:bg-purple-900/30 dark:text-purple-400 dark:border-purple-800 text-xs">
-                                  Souhait: {session.userWish}
-                                </Badge>
-                              )}
+
+                        {/* Sessions Column */}
+                        <div className="flex-grow space-y-3">
+                          {day.sessions.length === 0 ? (
+                            <div className="h-full min-h-[3.5rem] flex items-center justify-between px-4 py-3 rounded-xl border border-dashed border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/50 group/empty transition-colors hover:border-emerald-200 dark:hover:border-emerald-900/50">
+                              <span className="text-sm text-zinc-400 dark:text-zinc-500 italic">Repos</span>
+                              <button 
+                                onClick={() => addSession(day.dateStr)}
+                                className="p-1.5 text-zinc-400 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 rounded-lg transition-all opacity-0 group-hover/empty:opacity-100 sm:focus:opacity-100"
+                                title="Ajouter une séance ce jour"
+                              >
+                                <Plus className="w-5 h-5" />
+                              </button>
                             </div>
-                            <Button variant="ghost" size="icon" className="h-8 w-8 text-zinc-400 hover:text-indigo-600 dark:hover:text-indigo-400" onClick={() => startEdit(session.date)} title="Émettre un souhait pour ce jour">
-                              <Pencil className="w-4 h-4" />
-                            </Button>
-                          </div>
-                          <p className="text-zinc-600 dark:text-zinc-300 text-sm leading-relaxed">
-                            {session.desc}
-                          </p>
-                          {session.logic && (
-                            <div className="mt-3 p-3 bg-zinc-50 dark:bg-zinc-900/50 rounded-lg border border-zinc-100 dark:border-zinc-800">
-                              <p className="text-sm text-zinc-600 dark:text-zinc-400 flex items-start gap-2">
-                                <Lightbulb className="w-4 h-4 shrink-0 text-amber-500 mt-0.5" />
-                                <span>{session.logic}</span>
-                              </p>
-                            </div>
-                          )}
-                          {session.coherenceWarning && (
-                            <div className="mt-2 p-3 bg-rose-50 dark:bg-rose-900/20 rounded-lg border border-rose-100 dark:border-rose-800/50">
-                              <p className="text-sm text-rose-700 dark:text-rose-400 flex items-start gap-2">
-                                <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
-                                <span><strong>Attention :</strong> {session.coherenceWarning}</span>
-                              </p>
-                            </div>
-                          )}
-                          
-                          {/* Feedback / Bilan Section */}
-                          <div className="mt-4 pt-3 border-t border-zinc-100 dark:border-zinc-800/50">
-                            {session.isCompleted && session.feedback ? (
-                              <div className="bg-zinc-50 dark:bg-zinc-900/30 p-3 rounded-lg border border-zinc-100 dark:border-zinc-800">
-                                <div className="flex items-center gap-2 mb-1">
-                                  <Check className="w-4 h-4 text-emerald-500" />
-                                  <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Séance terminée</span>
-                                  <Badge variant="outline" className="ml-auto text-xs">RPE: {session.feedback.rpe}/10</Badge>
-                                </div>
-                                {session.feedback.comment && (
-                                  <p className="text-sm text-zinc-600 dark:text-zinc-400 mt-2 italic">"{session.feedback.comment}"</p>
+                          ) : (
+                            day.sessions.map(session => (
+                              <div 
+                                key={session.id} 
+                                className={`group relative bg-white dark:bg-zinc-900 border rounded-xl overflow-hidden transition-all ${
+                                  session.completed 
+                                    ? 'border-emerald-200 dark:border-emerald-900/50 bg-emerald-50/30 dark:bg-emerald-900/10' 
+                                    : 'border-zinc-200 dark:border-zinc-800 hover:border-zinc-300 dark:hover:border-zinc-700 shadow-sm'
+                                }`}
+                              >
+                                {isEditing === session.id ? (
+                                  <div className="p-4 sm:p-5 space-y-4">
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                      <div className="space-y-1.5">
+                                        <label className="text-sm font-medium flex items-center gap-2 text-zinc-700 dark:text-zinc-300">
+                                          <Calendar className="w-4 h-4" /> Date
+                                        </label>
+                                        <input 
+                                          type="date" 
+                                          value={editForm.date || ''} 
+                                          onChange={e => setEditForm({...editForm, date: e.target.value})}
+                                          className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none"
+                                        />
+                                      </div>
+                                      <div className="space-y-1.5">
+                                        <label className="text-sm font-medium flex items-center gap-2 text-zinc-700 dark:text-zinc-300">
+                                          <Activity className="w-4 h-4" /> Type de séance
+                                        </label>
+                                        <input 
+                                          type="text" 
+                                          placeholder="Ex: Endurance fondamentale..."
+                                          value={editForm.type || ''} 
+                                          onChange={e => setEditForm({...editForm, type: e.target.value})}
+                                          className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none"
+                                        />
+                                      </div>
+                                    </div>
+                                    <div className="space-y-1.5">
+                                      <label className="text-sm font-medium flex items-center gap-2 text-zinc-700 dark:text-zinc-300">
+                                        <AlignLeft className="w-4 h-4" /> Déroulement / Description
+                                      </label>
+                                      <textarea 
+                                        rows={3}
+                                        placeholder="Détails de la séance..."
+                                        value={editForm.description || ''} 
+                                        onChange={e => setEditForm({...editForm, description: e.target.value})}
+                                        className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none resize-y"
+                                      />
+                                    </div>
+                                    <div className="flex items-center justify-end gap-2 pt-2">
+                                      <button onClick={cancelEdit} className="px-4 py-2 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg font-medium transition-colors">
+                                        Annuler
+                                      </button>
+                                      <button onClick={saveEdit} className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-medium transition-colors">
+                                        <Save className="w-4 h-4" />
+                                        Enregistrer
+                                      </button>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <div className="flex flex-col sm:flex-row sm:items-start p-4 gap-4">
+                                    <button 
+                                      onClick={() => toggleCompleted(session.id)}
+                                      className={`flex-shrink-0 mt-0.5 transition-colors ${session.completed ? 'text-emerald-500' : 'text-zinc-300 dark:text-zinc-700 hover:text-emerald-500'}`}
+                                    >
+                                      {session.completed ? <CheckCircle2 className="w-5 h-5" /> : <Circle className="w-5 h-5" />}
+                                    </button>
+                                    
+                                    <div className="flex-grow min-w-0">
+                                      <div className="flex items-center gap-2 mb-1">
+                                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                                          session.completed 
+                                            ? 'bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400' 
+                                            : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-500/20 dark:text-emerald-300'
+                                        }`}>
+                                          {session.type}
+                                        </span>
+                                      </div>
+                                      <p className={`text-sm whitespace-pre-wrap ${session.completed ? 'text-zinc-400 dark:text-zinc-500' : 'text-zinc-600 dark:text-zinc-300'}`}>
+                                        {session.description || <span className="italic opacity-50">Aucune description</span>}
+                                      </p>
+                                    </div>
+
+                                    <div className="flex items-center gap-1 sm:opacity-0 group-hover:opacity-100 transition-opacity">
+                                      <button 
+                                        onClick={() => startEditing(session)}
+                                        className="p-2 text-zinc-400 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 rounded-lg transition-colors"
+                                        title="Modifier"
+                                      >
+                                        <Edit2 className="w-4 h-4" />
+                                      </button>
+                                      <button 
+                                        onClick={() => deleteSession(session.id)}
+                                        className="p-2 text-zinc-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition-colors"
+                                        title="Supprimer"
+                                      >
+                                        <Trash2 className="w-4 h-4" />
+                                      </button>
+                                    </div>
+                                  </div>
                                 )}
                               </div>
-                            ) : feedbackDate === session.date ? (
-                              <div className="bg-white dark:bg-zinc-950 p-3 rounded-lg border border-indigo-200 dark:border-indigo-900/50 shadow-sm space-y-3">
-                                <div>
-                                  <Label className="text-xs text-zinc-500 font-semibold mb-1 block">Difficulté ressentie (RPE 1-10) :</Label>
-                                  <div className="flex items-center gap-3">
-                                    <input 
-                                      type="range" 
-                                      min="1" max="10" 
-                                      value={feedbackForm.rpe} 
-                                      onChange={e => setFeedbackForm({...feedbackForm, rpe: parseInt(e.target.value)})}
-                                      className="flex-1"
-                                    />
-                                    <span className="text-sm font-bold w-6 text-center">{feedbackForm.rpe}</span>
-                                  </div>
-                                </div>
-                                <div>
-                                  <Label className="text-xs text-zinc-500 font-semibold mb-1 block">Commentaire (fatigue, sensations...) :</Label>
-                                  <Textarea 
-                                    value={feedbackForm.comment}
-                                    onChange={e => setFeedbackForm({...feedbackForm, comment: e.target.value})}
-                                    placeholder="Ex: Super sensations, ou Très fatigué sur la fin..."
-                                    rows={2}
-                                    className="text-sm resize-none"
-                                  />
-                                </div>
-                                <div className="flex gap-2 justify-end">
-                                  <Button variant="ghost" size="sm" onClick={() => setFeedbackDate(null)} className="h-8 text-xs">
-                                    Annuler
-                                  </Button>
-                                  <Button variant="default" size="sm" onClick={() => saveFeedback(session.date)} className="h-8 text-xs bg-emerald-600 hover:bg-emerald-700 text-white">
-                                    <Check className="w-3 h-3 mr-1" /> Valider le bilan
-                                  </Button>
-                                </div>
-                              </div>
-                            ) : (
-                              <Button variant="ghost" size="sm" onClick={() => { setFeedbackDate(session.date); setFeedbackForm({ rpe: 5, comment: '' }); }} className="text-xs text-zinc-500 hover:text-indigo-600">
-                                <MessageSquare className="w-3 h-3 mr-1" /> Faire le bilan de la séance
-                              </Button>
-                            )}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="parameters" className="animate-in fade-in-50 duration-500">
-            <Card className="border-zinc-200 dark:border-zinc-800 shadow-sm max-w-3xl mx-auto">
-              <CardHeader>
-                <CardTitle className="text-xl">Objectifs & Configuration</CardTitle>
-                <CardDescription>Ajustez les objectifs pour {activeProfile.name}.</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-8">
-                
-                <div className="space-y-4">
-                  <Label htmlFor="nbSeances" className="text-base font-semibold">Volume hebdomadaire</Label>
-                  <div className="flex items-center gap-4">
-                    <Input 
-                      id="nbSeances" 
-                      type="number" 
-                      min={1} 
-                      max={7} 
-                      value={activeProfile.nbSeances} 
-                      onChange={(e) => updateProfile({ nbSeances: parseInt(e.target.value) || 0 })}
-                      className="w-24 text-lg"
-                    />
-                    <span className="text-zinc-500">séances par semaine</span>
-                  </div>
-                </div>
-
-                <div className="space-y-6">
-                  <div className="flex items-center justify-between">
-                    <Label className="text-base font-semibold flex items-center gap-2">
-                      <Trophy className="w-5 h-5 text-amber-500" />
-                      Objectifs Majeurs (A)
-                    </Label>
-                    <Button variant="outline" size="sm" onClick={() => updateProfile({ mainGoals: [...activeProfile.mainGoals, { id: Date.now().toString(), name: '', date: '', distance: '', elevation: '' }] })}>
-                      <Plus className="w-4 h-4 mr-2" /> Ajouter
-                    </Button>
-                  </div>
-                  
-                  <div className="space-y-4">
-                    {activeProfile.mainGoals.map((goal, index) => (
-                      <div key={goal.id} className="space-y-4 p-5 bg-zinc-50 dark:bg-zinc-900/50 rounded-xl border border-zinc-100 dark:border-zinc-800 relative">
-                        <div className="flex items-center justify-between">
-                          <h3 className="font-semibold text-amber-600 dark:text-amber-500 flex items-center gap-2">
-                            Objectif Majeur #{index + 1}
-                          </h3>
-                          <Button variant="ghost" size="icon" className="h-8 w-8 text-zinc-400 hover:text-rose-500" onClick={() => updateProfile({ mainGoals: activeProfile.mainGoals.filter(g => g.id !== goal.id) })}>
-                            <Trash2 className="w-4 h-4" />
-                          </Button>
-                        </div>
-                        <div className="space-y-3">
-                          <div className="space-y-1.5">
-                            <Label className="text-xs text-zinc-500 uppercase tracking-wider">Nom de l'évènement</Label>
-                            <Input 
-                              value={goal.name} 
-                              onChange={e => updateProfile({ mainGoals: activeProfile.mainGoals.map(g => g.id === goal.id ? { ...g, name: e.target.value } : g) })} 
-                              placeholder="Ex: UTMB, Marathon de Paris..." 
-                            />
-                          </div>
-                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                            <div className="space-y-1.5">
-                              <Label className="text-xs text-zinc-500 uppercase tracking-wider">Date</Label>
-                              <Input 
-                                type="date" 
-                                value={goal.date} 
-                                onChange={e => updateProfile({ mainGoals: activeProfile.mainGoals.map(g => g.id === goal.id ? { ...g, date: e.target.value } : g) })} 
-                              />
-                            </div>
-                            <div className="space-y-1.5">
-                              <Label className="text-xs text-zinc-500 uppercase tracking-wider">Distance (km)</Label>
-                              <Input 
-                                type="number" 
-                                min={0}
-                                value={goal.distance} 
-                                onChange={e => updateProfile({ mainGoals: activeProfile.mainGoals.map(g => g.id === goal.id ? { ...g, distance: e.target.value ? Number(e.target.value) : '' } : g) })} 
-                              />
-                            </div>
-                            <div className="space-y-1.5">
-                              <Label className="text-xs text-zinc-500 uppercase tracking-wider">Dénivelé (m D+)</Label>
-                              <Input 
-                                type="number" 
-                                min={0}
-                                value={goal.elevation} 
-                                onChange={e => updateProfile({ mainGoals: activeProfile.mainGoals.map(g => g.id === goal.id ? { ...g, elevation: e.target.value ? Number(e.target.value) : '' } : g) })} 
-                              />
-                            </div>
-                          </div>
+                            ))
+                          )}
                         </div>
                       </div>
                     ))}
-                    {activeProfile.mainGoals.length === 0 && (
-                      <p className="text-sm text-zinc-500 italic text-center py-4">Aucun objectif majeur défini.</p>
-                    )}
                   </div>
                 </div>
+              ))}
+            </div>
+          </div>
+        )}
 
-                <div className="space-y-6 pt-4 border-t border-zinc-100 dark:border-zinc-800">
-                  <div className="flex items-center justify-between">
-                    <Label className="text-base font-semibold flex items-center gap-2">
-                      <Mountain className="w-5 h-5 text-zinc-500" />
-                      Objectifs Secondaires (B)
-                    </Label>
-                    <Button variant="outline" size="sm" onClick={() => updateProfile({ secondaryGoals: [...activeProfile.secondaryGoals, { id: Date.now().toString(), name: '', date: '', distance: '', elevation: '' }] })}>
-                      <Plus className="w-4 h-4 mr-2" /> Ajouter
-                    </Button>
-                  </div>
-                  
-                  <div className="space-y-4">
-                    {activeProfile.secondaryGoals.map((goal, index) => (
-                      <div key={goal.id} className="space-y-4 p-5 bg-zinc-50 dark:bg-zinc-900/50 rounded-xl border border-zinc-100 dark:border-zinc-800 relative">
-                        <div className="flex items-center justify-between">
-                          <h3 className="font-semibold text-zinc-700 dark:text-zinc-300 flex items-center gap-2">
-                            Objectif Secondaire #{index + 1}
-                          </h3>
-                          <Button variant="ghost" size="icon" className="h-8 w-8 text-zinc-400 hover:text-rose-500" onClick={() => updateProfile({ secondaryGoals: activeProfile.secondaryGoals.filter(g => g.id !== goal.id) })}>
-                            <Trash2 className="w-4 h-4" />
-                          </Button>
-                        </div>
-                        <div className="space-y-3">
-                          <div className="space-y-1.5">
-                            <Label className="text-xs text-zinc-500 uppercase tracking-wider">Nom de l'évènement</Label>
-                            <Input 
-                              value={goal.name} 
-                              onChange={e => updateProfile({ secondaryGoals: activeProfile.secondaryGoals.map(g => g.id === goal.id ? { ...g, name: e.target.value } : g) })} 
-                              placeholder="Ex: Semi-marathon..." 
-                            />
-                          </div>
-                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                            <div className="space-y-1.5">
-                              <Label className="text-xs text-zinc-500 uppercase tracking-wider">Date</Label>
-                              <Input 
-                                type="date" 
-                                value={goal.date} 
-                                onChange={e => updateProfile({ secondaryGoals: activeProfile.secondaryGoals.map(g => g.id === goal.id ? { ...g, date: e.target.value } : g) })} 
-                              />
-                            </div>
-                            <div className="space-y-1.5">
-                              <Label className="text-xs text-zinc-500 uppercase tracking-wider">Distance (km)</Label>
-                              <Input 
-                                type="number" 
-                                min={0}
-                                value={goal.distance} 
-                                onChange={e => updateProfile({ secondaryGoals: activeProfile.secondaryGoals.map(g => g.id === goal.id ? { ...g, distance: e.target.value ? Number(e.target.value) : '' } : g) })} 
-                              />
-                            </div>
-                            <div className="space-y-1.5">
-                              <Label className="text-xs text-zinc-500 uppercase tracking-wider">Dénivelé (m D+)</Label>
-                              <Input 
-                                type="number" 
-                                min={0}
-                                value={goal.elevation} 
-                                onChange={e => updateProfile({ secondaryGoals: activeProfile.secondaryGoals.map(g => g.id === goal.id ? { ...g, elevation: e.target.value ? Number(e.target.value) : '' } : g) })} 
-                              />
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                    {activeProfile.secondaryGoals.length === 0 && (
-                      <p className="text-sm text-zinc-500 italic text-center py-4">Aucun objectif secondaire défini.</p>
-                    )}
-                  </div>
-                </div>
+        {/* TAB: COURSES */}
+        {activeTab === 'courses' && (
+          <div className="space-y-8 max-w-3xl mx-auto">
+            <div>
+              <h2 className="text-2xl font-bold tracking-tight">Mes Courses</h2>
+              <p className="text-zinc-500 dark:text-zinc-400 mt-1">Ajoutez vos objectifs pour voir le compte à rebours sur le dashboard.</p>
+            </div>
 
-                <div className="flex items-center justify-between p-4 bg-zinc-100 dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800">
-                  <div className="space-y-1">
-                    <Label htmlFor="affutage" className="text-base font-semibold">Semaine d'affûtage</Label>
-                    <p className="text-sm text-zinc-500">Réduit le volume de 50% avant une course</p>
-                  </div>
-                  <Switch 
-                    id="affutage" 
-                    checked={activeProfile.isAffutage}
-                    onCheckedChange={(checked) => updateProfile({ isAffutage: checked })}
+            <div className="bg-white dark:bg-zinc-900 p-6 rounded-2xl border border-zinc-200 dark:border-zinc-800 shadow-sm space-y-4">
+              <h3 className="text-lg font-semibold">Ajouter une course</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="sm:col-span-2">
+                  <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">Nom de la course</label>
+                  <input 
+                    type="text" 
+                    placeholder="Ex: Marathon de Paris"
+                    value={newRace.name}
+                    onChange={e => setNewRace({...newRace, name: e.target.value})}
+                    className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none"
                   />
                 </div>
-
-                <div className="pt-4 border-t border-zinc-200 dark:border-zinc-800">
-                  <Button 
-                    className="w-full text-base h-12" 
-                    size="lg"
-                    onClick={generatePlan}
-                    disabled={loading}
-                  >
-                    {loading ? (
-                      <>
-                        <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                        Génération en cours...
-                      </>
-                    ) : (
-                      'Générer le nouveau planning'
-                    )}
-                  </Button>
-                  
-                  {error && (
-                    <div className="mt-4 p-4 text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded-lg dark:bg-rose-900/20 dark:border-rose-800 dark:text-rose-400">
-                      {error}
-                    </div>
-                  )}
+                <div>
+                  <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">Date</label>
+                  <input 
+                    type="date" 
+                    value={newRace.date}
+                    onChange={e => setNewRace({...newRace, date: e.target.value})}
+                    className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none"
+                  />
                 </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
+              </div>
+              <div className="flex justify-end pt-2">
+                <button 
+                  onClick={handleAddRace}
+                  disabled={!newRace.name || !newRace.date}
+                  className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg font-medium transition-colors"
+                >
+                  <Plus className="w-4 h-4" />
+                  Ajouter l'objectif
+                </button>
+              </div>
+            </div>
 
-          <TabsContent value="history" className="animate-in fade-in-50 duration-500">
-            <Card className="border-zinc-200 dark:border-zinc-800 shadow-sm max-w-3xl mx-auto">
-              <CardHeader>
+            <div className="space-y-4">
+              <h3 className="text-lg font-semibold">Vos objectifs enregistrés</h3>
+              {races.length === 0 ? (
+                <div className="text-center py-12 bg-zinc-50 dark:bg-zinc-900/50 rounded-2xl border border-dashed border-zinc-200 dark:border-zinc-800">
+                  <Trophy className="w-10 h-10 text-zinc-300 dark:text-zinc-700 mx-auto mb-3" />
+                  <p className="text-zinc-500 dark:text-zinc-400">Aucune course enregistrée pour le moment.</p>
+                </div>
+              ) : (
+                <div className="grid gap-4">
+                  {races.sort((a,b) => a.date.localeCompare(b.date)).map(race => {
+                    const days = differenceInDays(parseISO(race.date), startOfDay(new Date()));
+                    return (
+                      <div key={race.id} className="bg-white dark:bg-zinc-900 p-5 rounded-xl border border-zinc-200 dark:border-zinc-800 flex items-center justify-between shadow-sm">
+                        <div className="flex items-center gap-4">
+                          <div className="w-12 h-12 bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-500 rounded-full flex items-center justify-center flex-shrink-0">
+                            <Trophy className="w-6 h-6" />
+                          </div>
+                          <div>
+                            <h4 className="font-bold text-lg text-zinc-900 dark:text-zinc-100">{race.name}</h4>
+                            <p className="text-zinc-500 dark:text-zinc-400">
+                              {format(parseISO(race.date), 'EEEE d MMMM yyyy', {locale: fr})}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-6">
+                          <div className="text-right hidden sm:block">
+                            <div className="text-2xl font-bold text-amber-600 dark:text-amber-500">
+                              {days > 0 ? `J-${days}` : days === 0 ? "Aujourd'hui" : 'Terminée'}
+                            </div>
+                            <div className="text-xs font-medium text-zinc-400 uppercase tracking-wider">Compte à rebours</div>
+                          </div>
+                          <button 
+                            onClick={() => deleteRace(race.id)}
+                            className="p-2 text-zinc-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition-colors"
+                            title="Supprimer"
+                          >
+                            <Trash2 className="w-5 h-5" />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* TAB: IMPORT CSV */}
+        {activeTab === 'import' && (
+          <div className="space-y-8 max-w-3xl mx-auto">
+            <div>
+              <h2 className="text-2xl font-bold tracking-tight">Importer des séances</h2>
+              <p className="text-zinc-500 dark:text-zinc-400 mt-1">Collez vos données CSV ci-dessous pour compléter votre programme.</p>
+            </div>
+            
+            <div className="bg-white dark:bg-zinc-900 p-6 rounded-2xl border border-zinc-200 dark:border-zinc-800 shadow-sm space-y-4">
+              <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <div>
-                    <CardTitle className="text-xl">Historique des courses</CardTitle>
-                    <CardDescription>Enregistrez vos temps passés pour aider l'IA à évaluer votre niveau.</CardDescription>
-                  </div>
-                  <Button variant="outline" size="sm" onClick={() => updateProfile({ pastRaces: [{ id: Date.now().toString(), name: '', date: '', distance: '', elevation: '', time: '' }, ...activeProfile.pastRaces] })}>
-                    <Plus className="w-4 h-4 mr-2" /> Ajouter
-                  </Button>
+                  <label className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Collez le texte CSV ici</label>
+                  <span className="text-xs text-zinc-500 font-mono">Format : Date, Type, Description, Terminé</span>
                 </div>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {activeProfile.pastRaces.map((race) => (
-                  <div key={race.id} className="p-5 bg-zinc-50 dark:bg-zinc-900/50 rounded-xl border border-zinc-100 dark:border-zinc-800 relative">
-                    <Button variant="ghost" size="icon" className="absolute top-3 right-3 h-8 w-8 text-zinc-400 hover:text-rose-500" onClick={() => updateProfile({ pastRaces: activeProfile.pastRaces.filter(r => r.id !== race.id) })}>
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
-                    <div className="space-y-4 pr-8">
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <div className="space-y-1.5">
-                          <Label className="text-xs text-zinc-500 uppercase tracking-wider">Nom de la course</Label>
-                          <Input 
-                            value={race.name} 
-                            onChange={e => updateProfile({ pastRaces: activeProfile.pastRaces.map(r => r.id === race.id ? { ...r, name: e.target.value } : r) })} 
-                            placeholder="Ex: SaintéLyon" 
-                          />
-                        </div>
-                        <div className="space-y-1.5">
-                          <Label className="text-xs text-zinc-500 uppercase tracking-wider">Date</Label>
-                          <Input 
-                            type="date" 
-                            value={race.date} 
-                            onChange={e => updateProfile({ pastRaces: activeProfile.pastRaces.map(r => r.id === race.id ? { ...r, date: e.target.value } : r) })} 
-                          />
-                        </div>
-                      </div>
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                        <div className="space-y-1.5">
-                          <Label className="text-xs text-zinc-500 uppercase tracking-wider">Distance (km)</Label>
-                          <Input 
-                            type="number" 
-                            min={0}
-                            value={race.distance} 
-                            onChange={e => updateProfile({ pastRaces: activeProfile.pastRaces.map(r => r.id === race.id ? { ...r, distance: e.target.value ? Number(e.target.value) : '' } : r) })} 
-                          />
-                        </div>
-                        <div className="space-y-1.5">
-                          <Label className="text-xs text-zinc-500 uppercase tracking-wider">Dénivelé (m D+)</Label>
-                          <Input 
-                            type="number" 
-                            min={0}
-                            value={race.elevation} 
-                            onChange={e => updateProfile({ pastRaces: activeProfile.pastRaces.map(r => r.id === race.id ? { ...r, elevation: e.target.value ? Number(e.target.value) : '' } : r) })} 
-                          />
-                        </div>
-                        <div className="space-y-1.5">
-                          <Label className="text-xs text-zinc-500 uppercase tracking-wider flex items-center gap-1">
-                            <Clock className="w-3 h-3" /> Temps
-                          </Label>
-                          <Input 
-                            placeholder="Ex: 04:30:00"
-                            value={race.time} 
-                            onChange={e => updateProfile({ pastRaces: activeProfile.pastRaces.map(r => r.id === race.id ? { ...r, time: e.target.value } : r) })} 
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-                {activeProfile.pastRaces.length === 0 && (
-                  <div className="text-center py-12 border-2 border-dashed border-zinc-200 dark:border-zinc-800 rounded-xl">
-                    <History className="w-8 h-8 text-zinc-300 mx-auto mb-3" />
-                    <p className="text-zinc-500 font-medium">Aucune course enregistrée</p>
-                    <p className="text-sm text-zinc-400 mt-1">Ajoutez vos résultats passés pour personnaliser le coaching.</p>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-        </Tabs>
+                <textarea 
+                  value={csvInput}
+                  onChange={e => setCsvInput(e.target.value)}
+                  placeholder="Date,Type,Description,Terminé&#10;2024-05-12,Endurance,Footing 45min,NON&#10;2024-05-14,Fractionné,10x400m,NON"
+                  className="w-full h-64 px-4 py-3 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none font-mono text-sm whitespace-pre"
+                />
+                <p className="text-xs text-zinc-500">
+                  Astuce : Les séances importées s'ajouteront à votre programme existant. Si vous importez des séances à des dates où vous en avez déjà, elles s'ajouteront à la suite.
+                </p>
+              </div>
+              <div className="flex items-center justify-between pt-2">
+                <div className="flex items-center gap-3">
+                  <span className="text-sm text-zinc-500">Ou importer un fichier :</span>
+                  <input 
+                    type="file" 
+                    accept=".csv" 
+                    className="hidden" 
+                    ref={fileInputRef}
+                    onChange={handleFileUpload}
+                  />
+                  <button 
+                    onClick={() => fileInputRef.current?.click()}
+                    className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-zinc-700 dark:text-zinc-300 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 rounded-lg transition-colors"
+                  >
+                    <Upload className="w-4 h-4" />
+                    Choisir un fichier
+                  </button>
+                </div>
+                <button 
+                  onClick={handleTextCsvImport}
+                  disabled={!csvInput.trim()}
+                  className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg font-medium transition-colors"
+                >
+                  <Plus className="w-4 h-4" />
+                  Ajouter ces séances
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
-      </div>
+      </main>
     </div>
   );
 }
