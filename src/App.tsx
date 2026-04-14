@@ -24,6 +24,7 @@ interface Race {
 export default function App() {
   const [activeTab, setActiveTab] = useState<'programme' | 'courses' | 'import'>('programme');
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isCloudLoaded, setIsCloudLoaded] = useState(false);
   const lastCloudData = useRef<string>('');
   
   const [sessions, setSessions] = useState<Session[]>(() => {
@@ -61,26 +62,31 @@ export default function App() {
         
         setSessions(cloudSessions);
         setRaces(cloudRaces);
-      } else {
-        // If no cloud data exists yet, but we have local data, upload it
-        if (sessions.length > 0 || races.length > 0) {
-          syncToCloud(sessions, races);
-        }
       }
+      setIsCloudLoaded(true);
     }, (error) => {
       console.error("Firestore Error:", error);
+      setIsCloudLoaded(true);
     });
 
     return () => unsubscribe();
   }, []);
 
   const syncToCloud = async (currentSessions: Session[], currentRaces: Race[]) => {
+    if (!isCloudLoaded) return; // Wait for initial cloud load
+
     const currentDataStr = JSON.stringify({ sessions: currentSessions, races: currentRaces });
     if (currentDataStr === lastCloudData.current) {
       return; // Skip if data hasn't changed locally
     }
 
     setIsSyncing(true);
+    
+    // Timeout to prevent UI getting stuck if offline
+    const timeoutId = setTimeout(() => {
+      setIsSyncing(false);
+    }, 5000);
+
     try {
       await setDoc(doc(db, 'plans', 'global-plan'), {
         sessions: currentSessions,
@@ -91,6 +97,7 @@ export default function App() {
     } catch (error) {
       console.error("Error syncing to cloud:", error);
     } finally {
+      clearTimeout(timeoutId);
       setIsSyncing(false);
     }
   };
@@ -303,8 +310,8 @@ export default function App() {
           <div className="flex items-center gap-2 sm:gap-4">
             <div className="flex items-center gap-3">
               <div className="hidden sm:flex items-center gap-1.5 text-xs font-medium text-zinc-500 bg-zinc-100 dark:bg-zinc-800 px-2.5 py-1.5 rounded-full">
-                <Cloud className={`w-3.5 h-3.5 ${isSyncing ? 'text-emerald-500 animate-pulse' : 'text-zinc-400'}`} />
-                {isSyncing ? 'Synchronisation...' : 'Synchronisé sur le Cloud'}
+                <Cloud className={`w-3.5 h-3.5 ${isSyncing ? 'text-emerald-500 animate-pulse' : isCloudLoaded ? 'text-emerald-500' : 'text-zinc-400'}`} />
+                {isSyncing ? 'Synchronisation...' : isCloudLoaded ? 'Synchronisé sur le Cloud' : 'Connexion...'}
               </div>
             </div>
             <button 
