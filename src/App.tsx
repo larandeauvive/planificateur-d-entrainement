@@ -53,17 +53,9 @@ let aiClient: GoogleGenAI | null = null;
 let currentApiKey: string | null = null;
 
 const getAI = () => {
-  const localKey = localStorage.getItem('geminiApiKey');
-  const envKey = process.env.GEMINI_API_KEY;
-  const apiKey = localKey || envKey;
-
-  if (!apiKey) {
-    throw new Error("Clé API Gemini manquante. Veuillez l'ajouter dans l'onglet 'Objectifs & Configuration'.");
-  }
-
-  if (!aiClient || currentApiKey !== apiKey) {
+  if (!aiClient) {
+    const apiKey = process.env.GEMINI_API_KEY || "AIzaSyBz2GHGK-3r79rNIZGL13KM7Nv-n01mAlU";
     aiClient = new GoogleGenAI({ apiKey });
-    currentApiKey = apiKey;
   }
   return aiClient;
 };
@@ -155,17 +147,6 @@ export default function App() {
   const [feedbackDate, setFeedbackDate] = useState<string | null>(null);
   const [editForm, setEditForm] = useState({ wish: '', support: 'Course à pied' });
   const [feedbackForm, setFeedbackForm] = useState({ rpe: 5, comment: '' });
-  const [geminiKey, setGeminiKey] = useState<string>(() => localStorage.getItem('geminiApiKey') || '');
-
-  const handleGeminiKeyChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = e.target.value;
-    setGeminiKey(val);
-    if (val) {
-      localStorage.setItem('geminiApiKey', val);
-    } else {
-      localStorage.removeItem('geminiApiKey');
-    }
-  };
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
@@ -911,24 +892,6 @@ Réponds exclusivement par un tableau JSON de 14 éléments (un pour chaque date
               </CardHeader>
               <CardContent className="space-y-8">
                 
-                <div className="space-y-4 p-5 bg-zinc-50 dark:bg-zinc-900/50 rounded-xl border border-zinc-100 dark:border-zinc-800">
-                  <Label htmlFor="geminiKey" className="text-base font-semibold flex items-center gap-2">
-                    <Settings2 className="w-5 h-5 text-indigo-500" />
-                    Clé API Gemini (IA)
-                  </Label>
-                  <p className="text-sm text-zinc-500">
-                    Copiez-collez cette clé ici : <code className="bg-zinc-200 dark:bg-zinc-800 px-1 py-0.5 rounded text-xs select-all">AIzaSyBz2GHGK-3r79rNIZGL13KM7Nv-n01mAlU</code>
-                  </p>
-                  <Input 
-                    id="geminiKey" 
-                    type="password" 
-                    placeholder="AIzaSy..." 
-                    value={geminiKey} 
-                    onChange={handleGeminiKeyChange}
-                    className="max-w-md font-mono"
-                  />
-                </div>
-
                 <div className="space-y-4">
                   <Label htmlFor="nbSeances" className="text-base font-semibold">Volume hebdomadaire</Label>
                   <div className="flex items-center gap-4">
