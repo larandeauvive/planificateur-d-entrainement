@@ -24,6 +24,7 @@ interface Race {
 export default function App() {
   const [activeTab, setActiveTab] = useState<'programme' | 'courses' | 'import'>('programme');
   const [isSyncing, setIsSyncing] = useState(false);
+  const lastCloudData = useRef<string>('');
   
   const [sessions, setSessions] = useState<Session[]>(() => {
     const saved = localStorage.getItem('fitplan-sessions');
@@ -53,8 +54,13 @@ export default function App() {
     const unsubscribe = onSnapshot(doc(db, 'plans', 'global-plan'), (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data();
-        if (data.sessions) setSessions(data.sessions);
-        if (data.races) setRaces(data.races);
+        const cloudSessions = data.sessions || [];
+        const cloudRaces = data.races || [];
+        
+        lastCloudData.current = JSON.stringify({ sessions: cloudSessions, races: cloudRaces });
+        
+        setSessions(cloudSessions);
+        setRaces(cloudRaces);
       } else {
         // If no cloud data exists yet, but we have local data, upload it
         if (sessions.length > 0 || races.length > 0) {
@@ -69,6 +75,11 @@ export default function App() {
   }, []);
 
   const syncToCloud = async (currentSessions: Session[], currentRaces: Race[]) => {
+    const currentDataStr = JSON.stringify({ sessions: currentSessions, races: currentRaces });
+    if (currentDataStr === lastCloudData.current) {
+      return; // Skip if data hasn't changed locally
+    }
+
     setIsSyncing(true);
     try {
       await setDoc(doc(db, 'plans', 'global-plan'), {
@@ -76,6 +87,7 @@ export default function App() {
         races: currentRaces,
         updatedAt: new Date().toISOString()
       });
+      lastCloudData.current = currentDataStr;
     } catch (error) {
       console.error("Error syncing to cloud:", error);
     } finally {
@@ -86,13 +98,9 @@ export default function App() {
   // Update local storage and cloud when data changes
   useEffect(() => {
     localStorage.setItem('fitplan-sessions', JSON.stringify(sessions));
-    syncToCloud(sessions, races);
-  }, [sessions]);
-
-  useEffect(() => {
     localStorage.setItem('fitplan-races', JSON.stringify(races));
     syncToCloud(sessions, races);
-  }, [races]);
+  }, [sessions, races]);
 
   const processCsvData = (data: any[]) => {
     const imported: Session[] = data.map((row: any) => ({
