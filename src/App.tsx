@@ -25,7 +25,8 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'programme' | 'courses' | 'import'>('programme');
   const [isSyncing, setIsSyncing] = useState(false);
   const [isCloudLoaded, setIsCloudLoaded] = useState(false);
-  const lastCloudData = useRef<string>('');
+  
+  const isLocalChange = useRef(false);
   
   const [sessions, setSessions] = useState<Session[]>(() => {
     const saved = localStorage.getItem('fitplan-sessions');
@@ -58,10 +59,14 @@ export default function App() {
         const cloudSessions = data.sessions || [];
         const cloudRaces = data.races || [];
         
-        lastCloudData.current = JSON.stringify({ sessions: cloudSessions, races: cloudRaces });
-        
+        isLocalChange.current = false; // Prevent echoing back to cloud
         setSessions(cloudSessions);
         setRaces(cloudRaces);
+      } else {
+        // If cloud is empty, upload local data
+        if (sessions.length > 0 || races.length > 0) {
+          syncToCloud(sessions, races);
+        }
       }
       setIsCloudLoaded(true);
     }, (error) => {
@@ -70,22 +75,14 @@ export default function App() {
     });
 
     return () => unsubscribe();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const syncToCloud = async (currentSessions: Session[], currentRaces: Race[]) => {
-    if (!isCloudLoaded) return; // Wait for initial cloud load
-
-    const currentDataStr = JSON.stringify({ sessions: currentSessions, races: currentRaces });
-    if (currentDataStr === lastCloudData.current) {
-      return; // Skip if data hasn't changed locally
-    }
-
     setIsSyncing(true);
     
-    // Timeout to prevent UI getting stuck if offline
-    const timeoutId = setTimeout(() => {
-      setIsSyncing(false);
-    }, 5000);
+    // Timeout to prevent UI getting stuck
+    const timeoutId = setTimeout(() => setIsSyncing(false), 3000);
 
     try {
       await setDoc(doc(db, 'plans', 'global-plan'), {
@@ -93,7 +90,6 @@ export default function App() {
         races: currentRaces,
         updatedAt: new Date().toISOString()
       });
-      lastCloudData.current = currentDataStr;
     } catch (error) {
       console.error("Error syncing to cloud:", error);
     } finally {
@@ -106,8 +102,16 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('fitplan-sessions', JSON.stringify(sessions));
     localStorage.setItem('fitplan-races', JSON.stringify(races));
-    syncToCloud(sessions, races);
-  }, [sessions, races]);
+    
+    if (!isLocalChange.current) {
+      isLocalChange.current = true;
+      return;
+    }
+    
+    if (isCloudLoaded) {
+      syncToCloud(sessions, races);
+    }
+  }, [sessions, races, isCloudLoaded]);
 
   const processCsvData = (data: any[]) => {
     const imported: Session[] = data.map((row: any) => ({
