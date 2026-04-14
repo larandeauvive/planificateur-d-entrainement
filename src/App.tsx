@@ -522,7 +522,16 @@ Réponds exclusivement par un tableau JSON de 14 éléments (un pour chaque date
         setActiveTab('dashboard');
       }
     } catch (err: any) {
-      setError(err.message || 'Une erreur est survenue lors de la génération.');
+      console.error("Erreur de génération:", err);
+      let errorMessage = err.message || 'Une erreur est survenue lors de la génération.';
+      
+      if (errorMessage.includes('SERVICE_DISABLED') || errorMessage.includes('has not been used in project')) {
+        errorMessage = "L'API Gemini n'est pas activée sur le projet Google Cloud associé à cette clé. Veuillez cliquer sur le lien fourni par Google pour l'activer, ou générez une nouvelle clé gratuite depuis Google AI Studio (aistudio.google.com).";
+      } else if (errorMessage.includes('API key not valid') || errorMessage.includes('API_KEY_INVALID')) {
+        errorMessage = "La clé API Gemini semble invalide. Veuillez vérifier que vous l'avez copiée correctement dans l'onglet 'Objectifs & Configuration'.";
+      }
+      
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }
@@ -908,7 +917,7 @@ Réponds exclusivement par un tableau JSON de 14 éléments (un pour chaque date
                     Clé API Gemini (IA)
                   </Label>
                   <p className="text-sm text-zinc-500">
-                    Copiez-collez cette clé ici : <code className="bg-zinc-200 dark:bg-zinc-800 px-1 py-0.5 rounded text-xs select-all">AIzaSyBPqlJ2l_nimGCG27NLqqGuHFsVCpw0pek</code>
+                    Copiez-collez cette clé ici : <code className="bg-zinc-200 dark:bg-zinc-800 px-1 py-0.5 rounded text-xs select-all">AIzaSyBz2GHGK-3r79rNIZGL13KM7Nv-n01mAlU</code>
                   </p>
                   <Input 
                     id="geminiKey" 
