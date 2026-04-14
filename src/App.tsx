@@ -54,7 +54,10 @@ let currentApiKey: string | null = null;
 
 const getAI = () => {
   if (!aiClient) {
-    const apiKey = process.env.GEMINI_API_KEY || "AIzaSyBz2GHGK-3r79rNIZGL13KM7Nv-n01mAlU";
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      throw new Error("La clé API Gemini intégrée est manquante.");
+    }
     aiClient = new GoogleGenAI({ apiKey });
   }
   return aiClient;
@@ -448,7 +451,7 @@ Réponds exclusivement par un tableau JSON de 14 éléments (un pour chaque date
 
       const ai = getAI();
       const response = await ai.models.generateContent({
-        model: 'gemini-3.1-pro-preview',
+        model: 'gemini-2.5-flash',
         contents: prompt,
         config: {
           responseMimeType: 'application/json',
@@ -506,10 +509,12 @@ Réponds exclusivement par un tableau JSON de 14 éléments (un pour chaque date
       console.error("Erreur de génération:", err);
       let errorMessage = err.message || 'Une erreur est survenue lors de la génération.';
       
-      if (errorMessage.includes('SERVICE_DISABLED') || errorMessage.includes('has not been used in project')) {
-        errorMessage = "L'API Gemini n'est pas activée sur le projet Google Cloud associé à cette clé. Veuillez cliquer sur le lien fourni par Google pour l'activer, ou générez une nouvelle clé gratuite depuis Google AI Studio (aistudio.google.com).";
+      if (errorMessage.includes('RESOURCE_EXHAUSTED') || errorMessage.includes('429') || errorMessage.includes('quota')) {
+        errorMessage = "Le système d'IA est actuellement surchargé (limite de requêtes atteinte). Veuillez patienter une minute avant de réessayer.";
+      } else if (errorMessage.includes('SERVICE_DISABLED') || errorMessage.includes('has not been used in project')) {
+        errorMessage = "Le service IA n'est pas activé correctement en arrière-plan.";
       } else if (errorMessage.includes('API key not valid') || errorMessage.includes('API_KEY_INVALID')) {
-        errorMessage = "La clé API Gemini semble invalide. Veuillez vérifier que vous l'avez copiée correctement dans l'onglet 'Objectifs & Configuration'.";
+        errorMessage = "La clé API intégrée est invalide.";
       }
       
       setError(errorMessage);
