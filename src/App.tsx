@@ -449,7 +449,7 @@ Réponds exclusivement par un tableau JSON de 14 éléments (un pour chaque date
 
       const ai = getAI();
       const response = await ai.models.generateContent({
-        model: 'gemini-2.5-pro',
+        model: 'gemini-3.1-pro-preview',
         contents: prompt,
         config: {
           responseMimeType: 'application/json',
