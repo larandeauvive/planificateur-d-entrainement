@@ -1,10 +1,9 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Upload, Download, Plus, Trash2, Edit2, CheckCircle2, Circle, Calendar, Activity, AlignLeft, Save, FileSpreadsheet, Dumbbell, Trophy, LayoutDashboard, FileText, Flag, MessageSquare, LogIn, LogOut, Cloud } from 'lucide-react';
+import { Upload, Download, Plus, Trash2, Edit2, CheckCircle2, Circle, Calendar, Activity, AlignLeft, Save, FileSpreadsheet, Dumbbell, Trophy, LayoutDashboard, FileText, Flag, MessageSquare, Cloud, Link as LinkIcon } from 'lucide-react';
 import Papa from 'papaparse';
 import { format, parseISO, isValid, startOfWeek, addDays, differenceInDays, startOfDay } from 'date-fns';
 import { fr } from 'date-fns/locale';
-import { auth, db, loginWithGoogle, logout } from './firebase';
-import { onAuthStateChanged, User } from 'firebase/auth';
+import { db } from './firebase';
 import { doc, setDoc, onSnapshot } from 'firebase/firestore';
 
 interface Session {
@@ -24,9 +23,9 @@ interface Race {
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<'programme' | 'courses' | 'import'>('programme');
-  const [user, setUser] = useState<User | null>(null);
-  const [isAuthReady, setIsAuthReady] = useState(false);
+  const [planId, setPlanId] = useState<string>('');
   const [isSyncing, setIsSyncing] = useState(false);
+  const [copied, setCopied] = useState(false);
   
   const [sessions, setSessions] = useState<Session[]>(() => {
     const saved = localStorage.getItem('fitplan-sessions');
@@ -51,25 +50,23 @@ export default function App() {
   
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Auth listener
+  // URL ID Initialization
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      setUser(currentUser);
-      setIsAuthReady(true);
-    });
-    return () => unsubscribe();
+    const params = new URLSearchParams(window.location.search);
+    let id = params.get('id');
+    if (!id) {
+      id = crypto.randomUUID().split('-')[0]; // Shorter ID for URL
+      const newUrl = `${window.location.pathname}?id=${id}`;
+      window.history.replaceState({}, '', newUrl);
+    }
+    setPlanId(id);
   }, []);
 
   // Firestore listener
   useEffect(() => {
-    if (!isAuthReady) return;
-    
-    if (!user) {
-      // If logged out, we could clear or keep local. Let's keep local.
-      return;
-    }
+    if (!planId) return;
 
-    const unsubscribe = onSnapshot(doc(db, 'users', user.uid), (docSnap) => {
+    const unsubscribe = onSnapshot(doc(db, 'plans', planId), (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data();
         if (data.sessions) setSessions(data.sessions);
@@ -77,7 +74,7 @@ export default function App() {
       } else {
         // If no cloud data exists yet, but we have local data, upload it
         if (sessions.length > 0 || races.length > 0) {
-          syncToCloud(sessions, races);
+          syncToCloud(sessions, races, planId);
         }
       }
     }, (error) => {
@@ -85,13 +82,13 @@ export default function App() {
     });
 
     return () => unsubscribe();
-  }, [user, isAuthReady]);
+  }, [planId]);
 
-  const syncToCloud = async (currentSessions: Session[], currentRaces: Race[]) => {
-    if (!user) return;
+  const syncToCloud = async (currentSessions: Session[], currentRaces: Race[], currentPlanId: string) => {
+    if (!currentPlanId) return;
     setIsSyncing(true);
     try {
-      await setDoc(doc(db, 'users', user.uid), {
+      await setDoc(doc(db, 'plans', currentPlanId), {
         sessions: currentSessions,
         races: currentRaces,
         updatedAt: new Date().toISOString()
@@ -106,17 +103,23 @@ export default function App() {
   // Update local storage and cloud when data changes
   useEffect(() => {
     localStorage.setItem('fitplan-sessions', JSON.stringify(sessions));
-    if (user && isAuthReady) {
-      syncToCloud(sessions, races);
+    if (planId) {
+      syncToCloud(sessions, races, planId);
     }
-  }, [sessions]);
+  }, [sessions, planId]);
 
   useEffect(() => {
     localStorage.setItem('fitplan-races', JSON.stringify(races));
-    if (user && isAuthReady) {
-      syncToCloud(sessions, races);
+    if (planId) {
+      syncToCloud(sessions, races, planId);
     }
-  }, [races]);
+  }, [races, planId]);
+
+  const copyLink = () => {
+    navigator.clipboard.writeText(window.location.href);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
 
   const processCsvData = (data: any[]) => {
     const imported: Session[] = data.map((row: any) => ({
@@ -317,31 +320,20 @@ export default function App() {
           </nav>
 
           <div className="flex items-center gap-2 sm:gap-4">
-            {user ? (
-              <div className="flex items-center gap-3">
-                <div className="hidden sm:flex items-center gap-1.5 text-xs font-medium text-zinc-500 bg-zinc-100 dark:bg-zinc-800 px-2.5 py-1.5 rounded-full">
-                  <Cloud className={`w-3.5 h-3.5 ${isSyncing ? 'text-emerald-500 animate-pulse' : 'text-zinc-400'}`} />
-                  {isSyncing ? 'Synchronisation...' : 'Synchronisé'}
-                </div>
-                <button 
-                  onClick={logout}
-                  className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg transition-colors"
-                  title="Se déconnecter"
-                >
-                  <LogOut className="w-4 h-4" />
-                  <span className="hidden sm:inline">Déconnexion</span>
-                </button>
+            <div className="flex items-center gap-3">
+              <div className="hidden sm:flex items-center gap-1.5 text-xs font-medium text-zinc-500 bg-zinc-100 dark:bg-zinc-800 px-2.5 py-1.5 rounded-full">
+                <Cloud className={`w-3.5 h-3.5 ${isSyncing ? 'text-emerald-500 animate-pulse' : 'text-zinc-400'}`} />
+                {isSyncing ? 'Synchronisation...' : 'Synchronisé'}
               </div>
-            ) : (
               <button 
-                onClick={loginWithGoogle}
-                className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors shadow-sm"
+                onClick={copyLink}
+                className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-zinc-600 dark:text-zinc-300 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 rounded-lg transition-colors"
+                title="Copier le lien pour synchroniser sur un autre appareil"
               >
-                <LogIn className="w-4 h-4" />
-                <span className="hidden sm:inline">Connexion pour synchroniser</span>
-                <span className="sm:hidden">Connexion</span>
+                {copied ? <CheckCircle2 className="w-4 h-4 text-emerald-500" /> : <LinkIcon className="w-4 h-4" />}
+                <span className="hidden sm:inline">{copied ? 'Lien copié !' : 'Lien de synchro'}</span>
               </button>
-            )}
+            </div>
             <button 
               onClick={handleExport}
               className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg transition-colors shadow-sm"
