@@ -54,10 +54,7 @@ let currentApiKey: string | null = null;
 
 const getAI = () => {
   if (!aiClient) {
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
-      throw new Error("La clé API Gemini intégrée est manquante.");
-    }
+    const apiKey = "AIzaSyDRuqEkYpOQjE5vg-LTKG2yGU78yA59Lek";
     aiClient = new GoogleGenAI({ apiKey });
   }
   return aiClient;
