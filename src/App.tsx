@@ -1,8 +1,11 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Upload, Download, Plus, Trash2, Edit2, CheckCircle2, Circle, Calendar, Activity, AlignLeft, Save, FileSpreadsheet, Dumbbell, Trophy, LayoutDashboard, FileText, Flag } from 'lucide-react';
+import { Upload, Download, Plus, Trash2, Edit2, CheckCircle2, Circle, Calendar, Activity, AlignLeft, Save, FileSpreadsheet, Dumbbell, Trophy, LayoutDashboard, FileText, Flag, MessageSquare, LogIn, LogOut, Cloud } from 'lucide-react';
 import Papa from 'papaparse';
 import { format, parseISO, isValid, startOfWeek, addDays, differenceInDays, startOfDay } from 'date-fns';
 import { fr } from 'date-fns/locale';
+import { auth, db, loginWithGoogle, logout } from './firebase';
+import { onAuthStateChanged, User } from 'firebase/auth';
+import { doc, setDoc, onSnapshot } from 'firebase/firestore';
 
 interface Session {
   id: string;
@@ -10,6 +13,7 @@ interface Session {
   type: string;
   description: string;
   completed: boolean;
+  sensations?: string;
 }
 
 interface Race {
@@ -20,6 +24,9 @@ interface Race {
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<'programme' | 'courses' | 'import'>('programme');
+  const [user, setUser] = useState<User | null>(null);
+  const [isAuthReady, setIsAuthReady] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
   
   const [sessions, setSessions] = useState<Session[]>(() => {
     const saved = localStorage.getItem('fitplan-sessions');
@@ -44,12 +51,71 @@ export default function App() {
   
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Auth listener
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+      setIsAuthReady(true);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // Firestore listener
+  useEffect(() => {
+    if (!isAuthReady) return;
+    
+    if (!user) {
+      // If logged out, we could clear or keep local. Let's keep local.
+      return;
+    }
+
+    const unsubscribe = onSnapshot(doc(db, 'users', user.uid), (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        if (data.sessions) setSessions(data.sessions);
+        if (data.races) setRaces(data.races);
+      } else {
+        // If no cloud data exists yet, but we have local data, upload it
+        if (sessions.length > 0 || races.length > 0) {
+          syncToCloud(sessions, races);
+        }
+      }
+    }, (error) => {
+      console.error("Firestore Error:", error);
+    });
+
+    return () => unsubscribe();
+  }, [user, isAuthReady]);
+
+  const syncToCloud = async (currentSessions: Session[], currentRaces: Race[]) => {
+    if (!user) return;
+    setIsSyncing(true);
+    try {
+      await setDoc(doc(db, 'users', user.uid), {
+        sessions: currentSessions,
+        races: currentRaces,
+        updatedAt: new Date().toISOString()
+      });
+    } catch (error) {
+      console.error("Error syncing to cloud:", error);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  // Update local storage and cloud when data changes
   useEffect(() => {
     localStorage.setItem('fitplan-sessions', JSON.stringify(sessions));
+    if (user && isAuthReady) {
+      syncToCloud(sessions, races);
+    }
   }, [sessions]);
 
   useEffect(() => {
     localStorage.setItem('fitplan-races', JSON.stringify(races));
+    if (user && isAuthReady) {
+      syncToCloud(sessions, races);
+    }
   }, [races]);
 
   const processCsvData = (data: any[]) => {
@@ -58,6 +124,7 @@ export default function App() {
       date: row.Date || row.date || '',
       type: row.Type || row.type || '',
       description: row.Description || row.description || row.Déroulement || row.deroulement || '',
+      sensations: row.Sensations || row.sensations || row.Ressenti || row.ressenti || '',
       completed: (row.Terminé || row.termine || row.Completed || '').toUpperCase() === 'OUI'
     })).filter(s => s.date);
 
@@ -101,6 +168,7 @@ export default function App() {
       Date: s.date,
       Type: s.type,
       Description: s.description,
+      Sensations: s.sensations || '',
       Terminé: s.completed ? 'OUI' : 'NON'
     }));
     const csv = Papa.unparse(data);
@@ -122,6 +190,7 @@ export default function App() {
       date: finalDate,
       type: 'Nouvelle séance',
       description: '',
+      sensations: '',
       completed: false
     };
     setSessions(prev => [...prev, newSession].sort((a, b) => a.date.localeCompare(b.date)));
@@ -247,7 +316,32 @@ export default function App() {
             </button>
           </nav>
 
-          <div className="flex items-center">
+          <div className="flex items-center gap-2 sm:gap-4">
+            {user ? (
+              <div className="flex items-center gap-3">
+                <div className="hidden sm:flex items-center gap-1.5 text-xs font-medium text-zinc-500 bg-zinc-100 dark:bg-zinc-800 px-2.5 py-1.5 rounded-full">
+                  <Cloud className={`w-3.5 h-3.5 ${isSyncing ? 'text-emerald-500 animate-pulse' : 'text-zinc-400'}`} />
+                  {isSyncing ? 'Synchronisation...' : 'Synchronisé'}
+                </div>
+                <button 
+                  onClick={logout}
+                  className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg transition-colors"
+                  title="Se déconnecter"
+                >
+                  <LogOut className="w-4 h-4" />
+                  <span className="hidden sm:inline">Déconnexion</span>
+                </button>
+              </div>
+            ) : (
+              <button 
+                onClick={loginWithGoogle}
+                className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors shadow-sm"
+              >
+                <LogIn className="w-4 h-4" />
+                <span className="hidden sm:inline">Connexion pour synchroniser</span>
+                <span className="sm:hidden">Connexion</span>
+              </button>
+            )}
             <button 
               onClick={handleExport}
               className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg transition-colors shadow-sm"
@@ -388,6 +482,18 @@ export default function App() {
                                         className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none resize-y"
                                       />
                                     </div>
+                                    <div className="space-y-1.5">
+                                      <label className="text-sm font-medium flex items-center gap-2 text-zinc-700 dark:text-zinc-300">
+                                        <MessageSquare className="w-4 h-4" /> Sensations & Retour
+                                      </label>
+                                      <textarea 
+                                        rows={2}
+                                        placeholder="Comment s'est passée la séance ? (Fatigue, douleurs, facilité...)"
+                                        value={editForm.sensations || ''} 
+                                        onChange={e => setEditForm({...editForm, sensations: e.target.value})}
+                                        className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none resize-y"
+                                      />
+                                    </div>
                                     <div className="flex items-center justify-end gap-2 pt-2">
                                       <button onClick={cancelEdit} className="px-4 py-2 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg font-medium transition-colors">
                                         Annuler
@@ -420,6 +526,14 @@ export default function App() {
                                       <p className={`text-sm whitespace-pre-wrap ${session.completed ? 'text-zinc-400 dark:text-zinc-500' : 'text-zinc-600 dark:text-zinc-300'}`}>
                                         {session.description || <span className="italic opacity-50">Aucune description</span>}
                                       </p>
+                                      {session.sensations && (
+                                        <div className="mt-3 p-3 bg-emerald-50 dark:bg-emerald-900/10 rounded-lg border border-emerald-100 dark:border-emerald-900/30">
+                                          <p className="text-sm text-emerald-800 dark:text-emerald-300 flex items-start gap-2">
+                                            <MessageSquare className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                                            <span>{session.sensations}</span>
+                                          </p>
+                                        </div>
+                                      )}
                                     </div>
 
                                     <div className="flex items-center gap-1 sm:opacity-0 group-hover:opacity-100 transition-opacity">
@@ -556,12 +670,12 @@ export default function App() {
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <label className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Collez le texte CSV ici</label>
-                  <span className="text-xs text-zinc-500 font-mono">Format : Date, Type, Description, Terminé</span>
+                  <span className="text-xs text-zinc-500 font-mono">Format : Date, Type, Description, Sensations, Terminé</span>
                 </div>
                 <textarea 
                   value={csvInput}
                   onChange={e => setCsvInput(e.target.value)}
-                  placeholder="Date,Type,Description,Terminé&#10;2024-05-12,Endurance,Footing 45min,NON&#10;2024-05-14,Fractionné,10x400m,NON"
+                  placeholder="Date,Type,Description,Sensations,Terminé&#10;2024-05-12,Endurance,Footing 45min,Très bonnes sensations,OUI&#10;2024-05-14,Fractionné,10x400m,,NON"
                   className="w-full h-64 px-4 py-3 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none font-mono text-sm whitespace-pre"
                 />
                 <p className="text-xs text-zinc-500">
