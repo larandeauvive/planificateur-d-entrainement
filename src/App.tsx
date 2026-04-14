@@ -26,7 +26,7 @@ export default function App() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [isCloudLoaded, setIsCloudLoaded] = useState(false);
   
-  const isLocalChange = useRef(false);
+  const lastCloudData = useRef<string>('');
   
   const [sessions, setSessions] = useState<Session[]>(() => {
     const saved = localStorage.getItem('fitplan-sessions');
@@ -51,7 +51,7 @@ export default function App() {
   
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Firestore listener
+  // 1. Listen to Firestore
   useEffect(() => {
     const unsubscribe = onSnapshot(doc(db, 'plans', 'global-plan'), (docSnap) => {
       if (docSnap.exists()) {
@@ -59,14 +59,11 @@ export default function App() {
         const cloudSessions = data.sessions || [];
         const cloudRaces = data.races || [];
         
-        isLocalChange.current = false; // Prevent echoing back to cloud
+        // Save the exact string representation of what's in the cloud
+        lastCloudData.current = JSON.stringify({ sessions: cloudSessions, races: cloudRaces });
+        
         setSessions(cloudSessions);
         setRaces(cloudRaces);
-      } else {
-        // If cloud is empty, upload local data
-        if (sessions.length > 0 || races.length > 0) {
-          syncToCloud(sessions, races);
-        }
       }
       setIsCloudLoaded(true);
     }, (error) => {
@@ -75,42 +72,43 @@ export default function App() {
     });
 
     return () => unsubscribe();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const syncToCloud = async (currentSessions: Session[], currentRaces: Race[]) => {
-    setIsSyncing(true);
-    
-    // Timeout to prevent UI getting stuck
-    const timeoutId = setTimeout(() => setIsSyncing(false), 3000);
-
-    try {
-      await setDoc(doc(db, 'plans', 'global-plan'), {
-        sessions: currentSessions,
-        races: currentRaces,
-        updatedAt: new Date().toISOString()
-      });
-    } catch (error) {
-      console.error("Error syncing to cloud:", error);
-    } finally {
-      clearTimeout(timeoutId);
-      setIsSyncing(false);
-    }
-  };
-
-  // Update local storage and cloud when data changes
+  // 2. Sync to Firestore when local data changes
   useEffect(() => {
+    // Always save to local storage as backup
     localStorage.setItem('fitplan-sessions', JSON.stringify(sessions));
     localStorage.setItem('fitplan-races', JSON.stringify(races));
     
-    if (!isLocalChange.current) {
-      isLocalChange.current = true;
+    // Don't sync until we've loaded the initial state from the cloud
+    if (!isCloudLoaded) return;
+    
+    const currentDataStr = JSON.stringify({ sessions, races });
+    
+    // If our local data is exactly the same as the cloud, do nothing (prevents infinite loops)
+    if (currentDataStr === lastCloudData.current) {
       return;
     }
-    
-    if (isCloudLoaded) {
-      syncToCloud(sessions, races);
-    }
+
+    // Otherwise, this is a local change. Send it to the cloud.
+    const sync = async () => {
+      setIsSyncing(true);
+      try {
+        await setDoc(doc(db, 'plans', 'global-plan'), {
+          sessions,
+          races,
+          updatedAt: new Date().toISOString()
+        });
+        // Update our reference so we don't re-sync when the snapshot comes back
+        lastCloudData.current = currentDataStr;
+      } catch (error) {
+        console.error("Error syncing to cloud:", error);
+      } finally {
+        setIsSyncing(false);
+      }
+    };
+
+    sync();
   }, [sessions, races, isCloudLoaded]);
 
   const processCsvData = (data: any[]) => {
@@ -231,23 +229,21 @@ export default function App() {
     }
   };
 
-  // Group sessions by week
+  // Group sessions by week (always show current week + 4 future weeks)
   const weeks = useMemo(() => {
     const validSessions = sessions.filter(s => isValid(parseISO(s.date)));
     
-    if (validSessions.length === 0) {
-      const currentWeekStart = startOfWeek(new Date(), { weekStartsOn: 1 });
-      const weekDays = Array.from({ length: 7 }).map((_, i) => addDays(currentWeekStart, i));
-      return [{
-        start: currentWeekStart,
-        end: addDays(currentWeekStart, 6),
-        days: weekDays.map(day => ({
-          date: day,
-          dateStr: format(day, 'yyyy-MM-dd'),
-          sessions: []
-        }))
-      }];
-    }
+    const currentWeekStart = startOfWeek(new Date(), { weekStartsOn: 1 });
+    let minDate = currentWeekStart;
+    // Show at least 4 weeks into the future by default
+    let maxDate = addDays(currentWeekStart, 4 * 7);
+
+    validSessions.forEach(s => {
+      const d = parseISO(s.date);
+      const ws = startOfWeek(d, { weekStartsOn: 1 });
+      if (ws < minDate) minDate = ws;
+      if (ws > maxDate) maxDate = ws;
+    });
 
     const groups = new Map<string, Session[]>();
     validSessions.forEach(s => {
@@ -258,21 +254,26 @@ export default function App() {
       groups.get(key)!.push(s);
     });
 
-    const sortedWeekKeys = Array.from(groups.keys()).sort();
-    
-    return sortedWeekKeys.map(key => {
-      const ws = parseISO(key);
-      const weekDays = Array.from({ length: 7 }).map((_, i) => addDays(ws, i));
-      return {
-        start: ws,
-        end: addDays(ws, 6),
+    const result = [];
+    let current = minDate;
+    while (current <= maxDate) {
+      const key = format(current, 'yyyy-MM-dd');
+      const weekDays = Array.from({ length: 7 }).map((_, i) => addDays(current, i));
+      
+      result.push({
+        start: current,
+        end: addDays(current, 6),
         days: weekDays.map(day => ({
           date: day,
           dateStr: format(day, 'yyyy-MM-dd'),
-          sessions: groups.get(key)!.filter(s => s.date === format(day, 'yyyy-MM-dd'))
+          sessions: (groups.get(key) || []).filter(s => s.date === format(day, 'yyyy-MM-dd'))
         }))
-      };
-    });
+      });
+      
+      current = addDays(current, 7);
+    }
+
+    return result;
   }, [sessions]);
 
   return (
