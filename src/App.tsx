@@ -26,7 +26,24 @@ interface Race {
   date: string;
 }
 
+interface Profile {
+  id: string;
+  name: string;
+}
+
 export default function App() {
+  const [profiles, setProfiles] = useState<Profile[]>(() => {
+    const saved = localStorage.getItem('fitplan-profiles');
+    if (saved) {
+      try { return JSON.parse(saved); } catch (e) { return [{ id: 'global-plan', name: 'Mon Profil' }]; }
+    }
+    return [{ id: 'global-plan', name: 'Mon Profil' }];
+  });
+
+  const [activeProfileId, setActiveProfileId] = useState<string>(() => {
+    return localStorage.getItem('fitplan-active-profile') || 'global-plan';
+  });
+
   const [activeTab, setActiveTab] = useState<'programme' | 'courses' | 'import'>('programme');
   const [isSyncing, setIsSyncing] = useState(false);
   const [isCloudLoaded, setIsCloudLoaded] = useState(false);
@@ -42,7 +59,7 @@ export default function App() {
   };
 
   const [sessions, setSessions] = useState<Session[]>(() => {
-    const saved = localStorage.getItem('fitplan-sessions');
+    const saved = localStorage.getItem(`fitplan-sessions-${activeProfileId}`);
     if (saved) {
       try { return JSON.parse(saved); } catch (e) { return []; }
     }
@@ -53,7 +70,7 @@ export default function App() {
   const todaysSessions = useMemo(() => sessions.filter(s => s.date === todayStr), [sessions, todayStr]);
 
   const [races, setRaces] = useState<Race[]>(() => {
-    const saved = localStorage.getItem('fitplan-races');
+    const saved = localStorage.getItem(`fitplan-races-${activeProfileId}`);
     if (saved) {
       try { return JSON.parse(saved); } catch (e) { return []; }
     }
@@ -68,15 +85,15 @@ export default function App() {
   
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const updateData = async (newSessions: Session[], newRaces: Race[]) => {
+  const updateData = async (newSessions: Session[], newRaces: Race[], profileId: string = activeProfileId) => {
     setSessions(newSessions);
     setRaces(newRaces);
-    localStorage.setItem('fitplan-sessions', JSON.stringify(newSessions));
-    localStorage.setItem('fitplan-races', JSON.stringify(newRaces));
+    localStorage.setItem(`fitplan-sessions-${profileId}`, JSON.stringify(newSessions));
+    localStorage.setItem(`fitplan-races-${profileId}`, JSON.stringify(newRaces));
     
     setIsSyncing(true);
     try {
-      await setDoc(doc(db, 'plans', 'global-plan'), {
+      await setDoc(doc(db, 'plans', profileId), {
         sessions: newSessions,
         races: newRaces,
         updatedAt: new Date().toISOString()
@@ -90,7 +107,10 @@ export default function App() {
 
   // 1. Listen to Firestore
   useEffect(() => {
-    const unsubscribe = onSnapshot(doc(db, 'plans', 'global-plan'), (docSnap) => {
+    if (!activeProfileId) return;
+    setIsCloudLoaded(false);
+    
+    const unsubscribe = onSnapshot(doc(db, 'plans', activeProfileId), (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data();
         const cloudSessions = data.sessions || [];
@@ -98,12 +118,16 @@ export default function App() {
         
         setSessions(cloudSessions);
         setRaces(cloudRaces);
-        localStorage.setItem('fitplan-sessions', JSON.stringify(cloudSessions));
-        localStorage.setItem('fitplan-races', JSON.stringify(cloudRaces));
+        localStorage.setItem(`fitplan-sessions-${activeProfileId}`, JSON.stringify(cloudSessions));
+        localStorage.setItem(`fitplan-races-${activeProfileId}`, JSON.stringify(cloudRaces));
       } else {
-        // If cloud is empty, upload local data
-        if (sessions.length > 0 || races.length > 0) {
-          updateData(sessions, races);
+        // If cloud is empty, try to load local data or upload empty
+        const localSessions = JSON.parse(localStorage.getItem(`fitplan-sessions-${activeProfileId}`) || '[]');
+        const localRaces = JSON.parse(localStorage.getItem(`fitplan-races-${activeProfileId}`) || '[]');
+        setSessions(localSessions);
+        setRaces(localRaces);
+        if (localSessions.length > 0 || localRaces.length > 0) {
+          updateData(localSessions, localRaces, activeProfileId);
         }
       }
       setIsCloudLoaded(true);
@@ -114,7 +138,7 @@ export default function App() {
 
     return () => unsubscribe();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [activeProfileId]);
 
   const processCsvData = (data: any[]) => {
     const imported: Session[] = data.map((row: any) => ({
@@ -627,6 +651,34 @@ export default function App() {
             <h1 className="text-xl font-bold tracking-tight hidden md:block flex items-center gap-2">
               FitPlan Studio <span className="text-xs font-normal text-zinc-400 bg-zinc-100 dark:bg-zinc-800 px-1.5 py-0.5 rounded-md ml-2">v2.1</span>
             </h1>
+            
+            <div className="ml-2 sm:ml-4 border-l border-zinc-200 dark:border-zinc-800 pl-2 sm:pl-4">
+              <select
+                value={activeProfileId}
+                onChange={(e) => {
+                  if (e.target.value === 'NEW_PROFILE') {
+                    const name = prompt('Nom du nouveau profil :');
+                    if (name && name.trim()) {
+                      const newProfile = { id: crypto.randomUUID(), name: name.trim() };
+                      const newProfiles = [...profiles, newProfile];
+                      setProfiles(newProfiles);
+                      localStorage.setItem('fitplan-profiles', JSON.stringify(newProfiles));
+                      setActiveProfileId(newProfile.id);
+                      localStorage.setItem('fitplan-active-profile', newProfile.id);
+                    }
+                  } else {
+                    setActiveProfileId(e.target.value);
+                    localStorage.setItem('fitplan-active-profile', e.target.value);
+                  }
+                }}
+                className="bg-zinc-100 dark:bg-zinc-800 border-none text-sm font-medium rounded-lg px-2 py-1.5 focus:ring-2 focus:ring-emerald-500 outline-none cursor-pointer max-w-[120px] sm:max-w-[200px] truncate"
+              >
+                {profiles.map(p => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+                <option value="NEW_PROFILE">+ Nouveau profil</option>
+              </select>
+            </div>
           </div>
           
           <nav className="flex items-center gap-1 sm:gap-2">
