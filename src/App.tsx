@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Upload, Download, Plus, Trash2, Edit2, CheckCircle2, Circle, Calendar, Activity, AlignLeft, Save, FileSpreadsheet, Dumbbell, Trophy, LayoutDashboard, FileText, Flag, MessageSquare, Cloud } from 'lucide-react';
+import { Upload, Download, Plus, Trash2, Edit2, CheckCircle2, Circle, Calendar, Activity, AlignLeft, Save, FileSpreadsheet, Dumbbell, Trophy, LayoutDashboard, FileText, Flag, MessageSquare, Cloud, Camera } from 'lucide-react';
 import Papa from 'papaparse';
+import html2canvas from 'html2canvas';
 import { format, parseISO, isValid, startOfWeek, addDays, differenceInDays, startOfDay } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { db } from './firebase';
@@ -26,8 +27,6 @@ export default function App() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [isCloudLoaded, setIsCloudLoaded] = useState(false);
   
-  const lastCloudData = useRef<string>('');
-  
   const [sessions, setSessions] = useState<Session[]>(() => {
     const saved = localStorage.getItem('fitplan-sessions');
     if (saved) {
@@ -51,6 +50,26 @@ export default function App() {
   
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const updateData = async (newSessions: Session[], newRaces: Race[]) => {
+    setSessions(newSessions);
+    setRaces(newRaces);
+    localStorage.setItem('fitplan-sessions', JSON.stringify(newSessions));
+    localStorage.setItem('fitplan-races', JSON.stringify(newRaces));
+    
+    setIsSyncing(true);
+    try {
+      await setDoc(doc(db, 'plans', 'global-plan'), {
+        sessions: newSessions,
+        races: newRaces,
+        updatedAt: new Date().toISOString()
+      });
+    } catch (error) {
+      console.error("Error syncing to cloud:", error);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
   // 1. Listen to Firestore
   useEffect(() => {
     const unsubscribe = onSnapshot(doc(db, 'plans', 'global-plan'), (docSnap) => {
@@ -59,11 +78,15 @@ export default function App() {
         const cloudSessions = data.sessions || [];
         const cloudRaces = data.races || [];
         
-        // Save the exact string representation of what's in the cloud
-        lastCloudData.current = JSON.stringify({ sessions: cloudSessions, races: cloudRaces });
-        
         setSessions(cloudSessions);
         setRaces(cloudRaces);
+        localStorage.setItem('fitplan-sessions', JSON.stringify(cloudSessions));
+        localStorage.setItem('fitplan-races', JSON.stringify(cloudRaces));
+      } else {
+        // If cloud is empty, upload local data
+        if (sessions.length > 0 || races.length > 0) {
+          updateData(sessions, races);
+        }
       }
       setIsCloudLoaded(true);
     }, (error) => {
@@ -72,44 +95,8 @@ export default function App() {
     });
 
     return () => unsubscribe();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  // 2. Sync to Firestore when local data changes
-  useEffect(() => {
-    // Always save to local storage as backup
-    localStorage.setItem('fitplan-sessions', JSON.stringify(sessions));
-    localStorage.setItem('fitplan-races', JSON.stringify(races));
-    
-    // Don't sync until we've loaded the initial state from the cloud
-    if (!isCloudLoaded) return;
-    
-    const currentDataStr = JSON.stringify({ sessions, races });
-    
-    // If our local data is exactly the same as the cloud, do nothing (prevents infinite loops)
-    if (currentDataStr === lastCloudData.current) {
-      return;
-    }
-
-    // Otherwise, this is a local change. Send it to the cloud.
-    const sync = async () => {
-      setIsSyncing(true);
-      try {
-        await setDoc(doc(db, 'plans', 'global-plan'), {
-          sessions,
-          races,
-          updatedAt: new Date().toISOString()
-        });
-        // Update our reference so we don't re-sync when the snapshot comes back
-        lastCloudData.current = currentDataStr;
-      } catch (error) {
-        console.error("Error syncing to cloud:", error);
-      } finally {
-        setIsSyncing(false);
-      }
-    };
-
-    sync();
-  }, [sessions, races, isCloudLoaded]);
 
   const processCsvData = (data: any[]) => {
     const imported: Session[] = data.map((row: any) => ({
@@ -121,11 +108,8 @@ export default function App() {
       completed: (row.Terminé || row.termine || row.Completed || '').toUpperCase() === 'OUI'
     })).filter(s => s.date);
 
-    setSessions(prev => {
-      // On ajoute les nouvelles séances aux anciennes (permet de compléter)
-      const combined = [...prev, ...imported];
-      return combined.sort((a, b) => a.date.localeCompare(b.date));
-    });
+    const combined = [...sessions, ...imported].sort((a, b) => a.date.localeCompare(b.date));
+    updateData(combined, races);
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -186,7 +170,8 @@ export default function App() {
       sensations: '',
       completed: false
     };
-    setSessions(prev => [...prev, newSession].sort((a, b) => a.date.localeCompare(b.date)));
+    const newSessions = [...sessions, newSession].sort((a, b) => a.date.localeCompare(b.date));
+    updateData(newSessions, races);
     startEditing(newSession);
   };
 
@@ -197,7 +182,8 @@ export default function App() {
 
   const saveEdit = () => {
     if (!isEditing) return;
-    setSessions(prev => prev.map(s => s.id === isEditing ? { ...s, ...editForm } as Session : s).sort((a, b) => a.date.localeCompare(b.date)));
+    const newSessions = sessions.map(s => s.id === isEditing ? { ...s, ...editForm } as Session : s).sort((a, b) => a.date.localeCompare(b.date));
+    updateData(newSessions, races);
     setIsEditing(null);
   };
 
@@ -208,24 +194,54 @@ export default function App() {
 
   const deleteSession = (id: string) => {
     if (confirm('Supprimer cette séance ?')) {
-      setSessions(prev => prev.filter(s => s.id !== id));
+      const newSessions = sessions.filter(s => s.id !== id);
+      updateData(newSessions, races);
     }
   };
 
   const toggleCompleted = (id: string) => {
-    setSessions(prev => prev.map(s => s.id === id ? { ...s, completed: !s.completed } : s));
+    const newSessions = sessions.map(s => s.id === id ? { ...s, completed: !s.completed } : s);
+    updateData(newSessions, races);
   };
 
   // Races Management
   const handleAddRace = () => {
     if (!newRace.name || !newRace.date) return;
-    setRaces(prev => [...prev, { id: crypto.randomUUID(), ...newRace }].sort((a, b) => a.date.localeCompare(b.date)));
+    const newRaces = [...races, { id: crypto.randomUUID(), ...newRace }].sort((a, b) => a.date.localeCompare(b.date));
+    updateData(sessions, newRaces);
     setNewRace({ name: '', date: '' });
   };
 
   const deleteRace = (id: string) => {
     if (confirm('Supprimer cette course ?')) {
-      setRaces(prev => prev.filter(r => r.id !== id));
+      const newRaces = races.filter(r => r.id !== id);
+      updateData(sessions, newRaces);
+    }
+  };
+
+  const downloadWeekImage = async (weekId: string, weekLabel: string) => {
+    const element = document.getElementById(weekId);
+    if (!element) return;
+    
+    // Optional: Add a temporary class to adjust styling for the image if needed
+    // element.classList.add('exporting-image');
+    
+    try {
+      const canvas = await html2canvas(element, {
+        scale: 2, // Higher resolution
+        backgroundColor: document.documentElement.classList.contains('dark') ? '#18181b' : '#ffffff',
+        useCORS: true,
+      });
+      
+      const image = canvas.toDataURL('image/png');
+      const link = document.createElement('a');
+      link.href = image;
+      link.download = `Programme_${weekLabel.replace(/ /g, '_')}.png`;
+      link.click();
+    } catch (error) {
+      console.error("Error generating image:", error);
+    } finally {
+      // element.classList.remove('exporting-image');
     }
   };
 
@@ -285,7 +301,9 @@ export default function App() {
             <div className="w-8 h-8 bg-emerald-500 rounded-lg flex items-center justify-center text-white shadow-sm">
               <Dumbbell className="w-5 h-5" />
             </div>
-            <h1 className="text-xl font-bold tracking-tight hidden md:block">FitPlan Studio</h1>
+            <h1 className="text-xl font-bold tracking-tight hidden md:block flex items-center gap-2">
+              FitPlan Studio <span className="text-xs font-normal text-zinc-400 bg-zinc-100 dark:bg-zinc-800 px-1.5 py-0.5 rounded-md ml-2">v2.1</span>
+            </h1>
           </div>
           
           <nav className="flex items-center gap-1 sm:gap-2">
@@ -374,13 +392,25 @@ export default function App() {
             )}
 
             <div className="space-y-10">
-              {weeks.map((week) => (
-                <div key={format(week.start, 'yyyy-MM-dd')} className="bg-white dark:bg-zinc-900 rounded-2xl shadow-sm border border-zinc-200 dark:border-zinc-800 overflow-hidden">
+              {weeks.map((week) => {
+                const weekId = `week-${format(week.start, 'yyyy-MM-dd')}`;
+                const weekLabel = `Semaine du ${format(week.start, 'd MMM', { locale: fr })} au ${format(week.end, 'd MMM yyyy', { locale: fr })}`;
+                
+                return (
+                <div key={weekId} id={weekId} className="bg-white dark:bg-zinc-900 rounded-2xl shadow-sm border border-zinc-200 dark:border-zinc-800 overflow-hidden">
                   {/* Week Header */}
                   <div className="bg-zinc-50 dark:bg-zinc-950/50 px-6 py-4 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between">
                     <h3 className="text-lg font-bold text-zinc-900 dark:text-zinc-100 capitalize">
-                      Semaine du {format(week.start, 'd MMM', { locale: fr })} au {format(week.end, 'd MMM yyyy', { locale: fr })}
+                      {weekLabel}
                     </h3>
+                    <button
+                      onClick={() => downloadWeekImage(weekId, weekLabel)}
+                      className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-emerald-600 bg-emerald-50 hover:bg-emerald-100 dark:text-emerald-400 dark:bg-emerald-500/10 dark:hover:bg-emerald-500/20 rounded-lg transition-colors"
+                      title="Télécharger le programme de la semaine en image"
+                    >
+                      <Camera className="w-4 h-4" />
+                      <span className="hidden sm:inline">Image</span>
+                    </button>
                   </div>
 
                   {/* Days List */}
@@ -539,7 +569,8 @@ export default function App() {
                     ))}
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}
