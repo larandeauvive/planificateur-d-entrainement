@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Upload, Download, Plus, Trash2, Edit2, CheckCircle2, Circle, Calendar, Activity, AlignLeft, Save, FileSpreadsheet, Dumbbell, Trophy, LayoutDashboard, FileText, Flag, MessageSquare, Cloud, Camera } from 'lucide-react';
+import { Upload, Download, Plus, Trash2, Edit2, CheckCircle2, Circle, Calendar, Activity, AlignLeft, Save, FileSpreadsheet, Dumbbell, Trophy, LayoutDashboard, FileText, Flag, MessageSquare, Cloud, Camera, Link as LinkIcon, History } from 'lucide-react';
 import Papa from 'papaparse';
 import { toPng } from 'html-to-image';
 import { format, parseISO, isValid, startOfWeek, addDays, differenceInDays, startOfDay } from 'date-fns';
@@ -14,6 +14,7 @@ interface Session {
   description: string;
   completed: boolean;
   sensations?: string;
+  suuntoLink?: string;
 }
 
 interface Race {
@@ -105,6 +106,7 @@ export default function App() {
       type: row.Type || row.type || '',
       description: row.Description || row.description || row.Déroulement || row.deroulement || '',
       sensations: row.Sensations || row.sensations || row.Ressenti || row.ressenti || '',
+      suuntoLink: row['Lien Suunto'] || row.suuntoLink || row.Suunto || '',
       completed: (row.Terminé || row.termine || row.Completed || '').toUpperCase() === 'OUI'
     })).filter(s => s.date);
 
@@ -146,6 +148,7 @@ export default function App() {
       Type: s.type,
       Description: s.description,
       Sensations: s.sensations || '',
+      'Lien Suunto': s.suuntoLink || '',
       Terminé: s.completed ? 'OUI' : 'NON'
     }));
     const csv = Papa.unparse(data);
@@ -154,6 +157,31 @@ export default function App() {
     const link = document.createElement('a');
     link.href = url;
     link.setAttribute('download', 'programme_entrainement.csv');
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handleExportHistory = () => {
+    const pastSessions = sessions.filter(s => {
+      const sessionDate = parseISO(s.date);
+      return isValid(sessionDate) && sessionDate < startOfDay(new Date()) && s.completed;
+    });
+
+    const data = pastSessions.map(s => ({
+      Date: s.date,
+      Type: s.type,
+      Description: s.description,
+      Sensations: s.sensations || '',
+      'Lien Suunto': s.suuntoLink || '',
+      Terminé: 'OUI'
+    }));
+    const csv = Papa.unparse(data);
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', 'historique_seances_passees.csv');
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -168,6 +196,7 @@ export default function App() {
       type: 'Nouvelle séance',
       description: '',
       sensations: '',
+      suuntoLink: '',
       completed: false
     };
     const newSessions = [...sessions, newSession].sort((a, b) => a.date.localeCompare(b.date));
@@ -331,8 +360,17 @@ export default function App() {
               </div>
             </div>
             <button 
+              onClick={handleExportHistory}
+              className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-zinc-700 dark:text-zinc-300 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 rounded-lg transition-colors shadow-sm"
+              title="Télécharger l'historique des séances passées"
+            >
+              <History className="w-4 h-4" />
+              <span className="hidden sm:inline">Historique</span>
+            </button>
+            <button 
               onClick={handleExport}
               className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg transition-colors shadow-sm"
+              title="Exporter tout le programme"
             >
               <Download className="w-4 h-4" />
               <span className="hidden sm:inline">Exporter</span>
@@ -494,6 +532,18 @@ export default function App() {
                                         className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none resize-y"
                                       />
                                     </div>
+                                    <div className="space-y-1.5">
+                                      <label className="text-sm font-medium flex items-center gap-2 text-zinc-700 dark:text-zinc-300">
+                                        <LinkIcon className="w-4 h-4" /> Lien Suunto
+                                      </label>
+                                      <input 
+                                        type="url"
+                                        placeholder="https://maps.suunto.com/move/..."
+                                        value={editForm.suuntoLink || ''} 
+                                        onChange={e => setEditForm({...editForm, suuntoLink: e.target.value})}
+                                        className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none"
+                                      />
+                                    </div>
                                     <div className="flex items-center justify-end gap-2 pt-2">
                                       <button onClick={cancelEdit} className="px-4 py-2 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg font-medium transition-colors">
                                         Annuler
@@ -533,6 +583,17 @@ export default function App() {
                                             <span>{session.sensations}</span>
                                           </p>
                                         </div>
+                                      )}
+                                      {session.suuntoLink && (
+                                        <a 
+                                          href={session.suuntoLink} 
+                                          target="_blank" 
+                                          rel="noopener noreferrer"
+                                          className="mt-3 inline-flex items-center gap-1.5 text-sm font-medium text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 hover:underline"
+                                        >
+                                          <LinkIcon className="w-4 h-4" />
+                                          Voir sur Suunto
+                                        </a>
                                       )}
                                     </div>
 
