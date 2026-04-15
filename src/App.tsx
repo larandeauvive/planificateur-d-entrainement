@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Upload, Download, Plus, Trash2, Edit2, CheckCircle2, Circle, Calendar, Activity, AlignLeft, Save, FileSpreadsheet, Dumbbell, Trophy, LayoutDashboard, FileText, Flag, MessageSquare, Cloud, Camera } from 'lucide-react';
 import Papa from 'papaparse';
-import html2canvas from 'html2canvas';
+import { toPng } from 'html-to-image';
 import { format, parseISO, isValid, startOfWeek, addDays, differenceInDays, startOfDay } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { db } from './firebase';
@@ -223,25 +223,18 @@ export default function App() {
     const element = document.getElementById(weekId);
     if (!element) return;
     
-    // Optional: Add a temporary class to adjust styling for the image if needed
-    // element.classList.add('exporting-image');
-    
     try {
-      const canvas = await html2canvas(element, {
-        scale: 2, // Higher resolution
+      const dataUrl = await toPng(element, {
+        pixelRatio: 2,
         backgroundColor: document.documentElement.classList.contains('dark') ? '#18181b' : '#ffffff',
-        useCORS: true,
       });
       
-      const image = canvas.toDataURL('image/png');
       const link = document.createElement('a');
-      link.href = image;
+      link.href = dataUrl;
       link.download = `Programme_${weekLabel.replace(/ /g, '_')}.png`;
       link.click();
     } catch (error) {
       console.error("Error generating image:", error);
-    } finally {
-      // element.classList.remove('exporting-image');
     }
   };
 
