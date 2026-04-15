@@ -702,17 +702,28 @@ export default function App() {
             </div>
 
             {/* Today's Sessions */}
-            {todaysSessions.length > 0 && (
-              <div className="mb-8">
-                <h3 className="text-lg font-bold text-zinc-900 dark:text-zinc-100 mb-4 flex items-center gap-2">
-                  <Calendar className="w-5 h-5 text-emerald-500" />
-                  Aujourd'hui
-                </h3>
-                <div className="space-y-4">
-                  {todaysSessions.map(s => renderSessionCard(s, true))}
-                </div>
+            <div className="mb-8">
+              <h3 className="text-lg font-bold text-zinc-900 dark:text-zinc-100 mb-4 flex items-center gap-2">
+                <Calendar className="w-5 h-5 text-emerald-500" />
+                Aujourd'hui
+              </h3>
+              <div className="space-y-4">
+                {todaysSessions.length > 0 ? (
+                  todaysSessions.map(s => renderSessionCard(s, true))
+                ) : (
+                  <div className="flex items-center justify-between px-4 py-4 rounded-xl border border-dashed border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/50 group/empty transition-colors hover:border-emerald-200 dark:hover:border-emerald-900/50">
+                    <span className="text-sm text-zinc-500 dark:text-zinc-400 italic">Aucune séance prévue aujourd'hui (Repos)</span>
+                    <button 
+                      onClick={() => addSession(todayStr)}
+                      className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-emerald-600 bg-emerald-50 hover:bg-emerald-100 dark:text-emerald-400 dark:bg-emerald-500/10 dark:hover:bg-emerald-500/20 rounded-lg transition-colors"
+                    >
+                      <Plus className="w-4 h-4" />
+                      Ajouter
+                    </button>
+                  </div>
+                )}
               </div>
-            )}
+            </div>
 
             {/* Races Countdown Banner */}
             {races.length > 0 && (
