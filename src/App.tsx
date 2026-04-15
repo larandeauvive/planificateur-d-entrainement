@@ -105,7 +105,7 @@ export default function App() {
     }
   };
 
-  // 1. Listen to Firestore
+  // 1. Listen to Firestore for active profile data
   useEffect(() => {
     if (!activeProfileId) return;
     setIsCloudLoaded(false);
@@ -139,6 +139,24 @@ export default function App() {
     return () => unsubscribe();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeProfileId]);
+
+  // 2. Listen to Firestore for profiles list
+  useEffect(() => {
+    const unsubscribe = onSnapshot(doc(db, 'plans', 'metadata'), (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        if (data.profiles && Array.isArray(data.profiles)) {
+          setProfiles(data.profiles);
+          localStorage.setItem('fitplan-profiles', JSON.stringify(data.profiles));
+        }
+      } else {
+        // Initialize metadata with current profiles if it doesn't exist
+        setDoc(doc(db, 'plans', 'metadata'), { profiles });
+      }
+    });
+    return () => unsubscribe();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const processCsvData = (data: any[]) => {
     const imported: Session[] = data.map((row: any) => ({
@@ -665,6 +683,7 @@ export default function App() {
                       localStorage.setItem('fitplan-profiles', JSON.stringify(newProfiles));
                       setActiveProfileId(newProfile.id);
                       localStorage.setItem('fitplan-active-profile', newProfile.id);
+                      setDoc(doc(db, 'plans', 'metadata'), { profiles: newProfiles }, { merge: true });
                     }
                   } else {
                     setActiveProfileId(e.target.value);
