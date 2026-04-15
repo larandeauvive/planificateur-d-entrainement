@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Upload, Download, Plus, Trash2, Edit2, CheckCircle2, Circle, Calendar, Activity, AlignLeft, Save, FileSpreadsheet, Dumbbell, Trophy, LayoutDashboard, FileText, Flag, MessageSquare, Cloud, Camera, Link as LinkIcon, History } from 'lucide-react';
+import { Upload, Download, Plus, Trash2, Edit2, CheckCircle2, Circle, Calendar, Activity, AlignLeft, Save, FileSpreadsheet, Dumbbell, Trophy, LayoutDashboard, FileText, Flag, MessageSquare, Cloud, Camera, Link as LinkIcon, History, Apple, Droplets, Zap, ChevronDown, ChevronUp } from 'lucide-react';
 import Papa from 'papaparse';
 import { toPng } from 'html-to-image';
 import { format, parseISO, isValid, startOfWeek, addDays, differenceInDays, startOfDay } from 'date-fns';
@@ -15,6 +15,9 @@ interface Session {
   completed: boolean;
   sensations?: string;
   suuntoLink?: string;
+  sessionNutrition?: string;
+  dailyNutrition?: string;
+  dailyHydration?: string;
 }
 
 interface Race {
@@ -27,7 +30,17 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'programme' | 'courses' | 'import'>('programme');
   const [isSyncing, setIsSyncing] = useState(false);
   const [isCloudLoaded, setIsCloudLoaded] = useState(false);
-  
+  const [expandedSessions, setExpandedSessions] = useState<Set<string>>(new Set());
+
+  const toggleSessionExpansion = (id: string) => {
+    setExpandedSessions(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
   const [sessions, setSessions] = useState<Session[]>(() => {
     const saved = localStorage.getItem('fitplan-sessions');
     if (saved) {
@@ -35,6 +48,9 @@ export default function App() {
     }
     return [];
   });
+
+  const todayStr = format(new Date(), 'yyyy-MM-dd');
+  const todaysSessions = useMemo(() => sessions.filter(s => s.date === todayStr), [sessions, todayStr]);
 
   const [races, setRaces] = useState<Race[]>(() => {
     const saved = localStorage.getItem('fitplan-races');
@@ -107,6 +123,9 @@ export default function App() {
       description: row.Description || row.description || row.Déroulement || row.deroulement || '',
       sensations: row.Sensations || row.sensations || row.Ressenti || row.ressenti || '',
       suuntoLink: row['Lien Suunto'] || row.suuntoLink || row.Suunto || '',
+      sessionNutrition: row['Conseil séance'] || row.sessionNutrition || '',
+      dailyNutrition: row['Nutrition journée'] || row.dailyNutrition || '',
+      dailyHydration: row['Hydratation journée'] || row.dailyHydration || '',
       completed: (row.Terminé || row.termine || row.Completed || '').toUpperCase() === 'OUI'
     })).filter(s => s.date);
 
@@ -148,6 +167,9 @@ export default function App() {
       Type: s.type,
       Description: s.description,
       Sensations: s.sensations || '',
+      'Conseil séance': s.sessionNutrition || '',
+      'Nutrition journée': s.dailyNutrition || '',
+      'Hydratation journée': s.dailyHydration || '',
       'Lien Suunto': s.suuntoLink || '',
       Terminé: s.completed ? 'OUI' : 'NON'
     }));
@@ -173,6 +195,9 @@ export default function App() {
       Type: s.type,
       Description: s.description,
       Sensations: s.sensations || '',
+      'Conseil séance': s.sessionNutrition || '',
+      'Nutrition journée': s.dailyNutrition || '',
+      'Hydratation journée': s.dailyHydration || '',
       'Lien Suunto': s.suuntoLink || '',
       Terminé: 'OUI'
     }));
@@ -197,6 +222,9 @@ export default function App() {
       description: '',
       sensations: '',
       suuntoLink: '',
+      sessionNutrition: '',
+      dailyNutrition: '',
+      dailyHydration: '',
       completed: false
     };
     const newSessions = [...sessions, newSession].sort((a, b) => a.date.localeCompare(b.date));
@@ -314,6 +342,240 @@ export default function App() {
     return result;
   }, [sessions]);
 
+  const renderSessionCard = (session: Session, isTodayTopView: boolean = false) => {
+    const isExpanded = isTodayTopView || expandedSessions.has(session.id);
+    
+    return (
+      <div 
+        key={session.id} 
+        className={`group relative bg-white dark:bg-zinc-900 border rounded-xl overflow-hidden transition-all ${
+          session.completed 
+            ? 'border-emerald-200 dark:border-emerald-900/50 bg-emerald-50/30 dark:bg-emerald-900/10' 
+            : 'border-zinc-200 dark:border-zinc-800 hover:border-zinc-300 dark:hover:border-zinc-700 shadow-sm'
+        }`}
+      >
+        {isEditing === session.id ? (
+          <div className="p-4 sm:p-5 space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium flex items-center gap-2 text-zinc-700 dark:text-zinc-300">
+                  <Calendar className="w-4 h-4" /> Date
+                </label>
+                <input 
+                  type="date" 
+                  value={editForm.date || ''} 
+                  onChange={e => setEditForm({...editForm, date: e.target.value})}
+                  className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium flex items-center gap-2 text-zinc-700 dark:text-zinc-300">
+                  <Activity className="w-4 h-4" /> Type de séance
+                </label>
+                <input 
+                  type="text" 
+                  placeholder="Ex: Endurance fondamentale..."
+                  value={editForm.type || ''} 
+                  onChange={e => setEditForm({...editForm, type: e.target.value})}
+                  className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none"
+                />
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium flex items-center gap-2 text-zinc-700 dark:text-zinc-300">
+                <AlignLeft className="w-4 h-4" /> Déroulement / Description
+              </label>
+              <textarea 
+                rows={3}
+                placeholder="Détails de la séance..."
+                value={editForm.description || ''} 
+                onChange={e => setEditForm({...editForm, description: e.target.value})}
+                className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none resize-y"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium flex items-center gap-2 text-zinc-700 dark:text-zinc-300">
+                <MessageSquare className="w-4 h-4" /> Sensations & Retour
+              </label>
+              <textarea 
+                rows={2}
+                placeholder="Comment s'est passée la séance ? (Fatigue, douleurs, facilité...)"
+                value={editForm.sensations || ''} 
+                onChange={e => setEditForm({...editForm, sensations: e.target.value})}
+                className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none resize-y"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium flex items-center gap-2 text-zinc-700 dark:text-zinc-300">
+                <LinkIcon className="w-4 h-4" /> Lien Suunto
+              </label>
+              <input 
+                type="url"
+                placeholder="https://maps.suunto.com/move/..."
+                value={editForm.suuntoLink || ''} 
+                onChange={e => setEditForm({...editForm, suuntoLink: e.target.value})}
+                className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none"
+              />
+            </div>
+            <div className="space-y-3 pt-2 border-t border-zinc-200 dark:border-zinc-800">
+              <h4 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Nutrition & Hydratation</h4>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium flex items-center gap-2 text-zinc-700 dark:text-zinc-300">
+                  <Zap className="w-4 h-4" /> Conseil nutritif (pour la séance)
+                </label>
+                <input 
+                  type="text"
+                  placeholder="Ex: 1 gel toutes les 45min, boisson iso..."
+                  value={editForm.sessionNutrition || ''} 
+                  onChange={e => setEditForm({...editForm, sessionNutrition: e.target.value})}
+                  className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none"
+                />
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium flex items-center gap-2 text-zinc-700 dark:text-zinc-300">
+                    <Apple className="w-4 h-4" /> Nutrition (journée)
+                  </label>
+                  <input 
+                    type="text"
+                    placeholder="Ex: Charge glucidique, repas léger..."
+                    value={editForm.dailyNutrition || ''} 
+                    onChange={e => setEditForm({...editForm, dailyNutrition: e.target.value})}
+                    className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium flex items-center gap-2 text-zinc-700 dark:text-zinc-300">
+                    <Droplets className="w-4 h-4" /> Hydratation (journée)
+                  </label>
+                  <input 
+                    type="text"
+                    placeholder="Ex: 1L St Yorre + 1.5L eau claire"
+                    value={editForm.dailyHydration || ''} 
+                    onChange={e => setEditForm({...editForm, dailyHydration: e.target.value})}
+                    className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none"
+                  />
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button onClick={cancelEdit} className="px-4 py-2 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg font-medium transition-colors">
+                Annuler
+              </button>
+              <button onClick={saveEdit} className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-medium transition-colors">
+                <Save className="w-4 h-4" />
+                Enregistrer
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="flex flex-col sm:flex-row sm:items-start p-4 gap-4">
+            <button 
+              onClick={() => toggleCompleted(session.id)}
+              className={`flex-shrink-0 mt-0.5 transition-colors ${session.completed ? 'text-emerald-500' : 'text-zinc-300 dark:text-zinc-700 hover:text-emerald-500'}`}
+            >
+              {session.completed ? <CheckCircle2 className="w-5 h-5" /> : <Circle className="w-5 h-5" />}
+            </button>
+            
+            <div className="flex-grow min-w-0">
+              <div 
+                className={`flex items-center justify-between gap-2 ${isExpanded ? 'mb-2' : ''} ${!isTodayTopView ? 'cursor-pointer' : ''}`}
+                onClick={() => !isTodayTopView && toggleSessionExpansion(session.id)}
+              >
+                <div className="flex items-center gap-2">
+                  <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                    session.completed 
+                      ? 'bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400' 
+                      : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-500/20 dark:text-emerald-300'
+                  }`}>
+                    {session.type}
+                  </span>
+                  {!isExpanded && session.description && (
+                    <span className="text-sm text-zinc-400 dark:text-zinc-500 truncate hidden sm:inline-block max-w-[200px]">
+                      {session.description}
+                    </span>
+                  )}
+                </div>
+                {!isTodayTopView && (
+                  <button className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300">
+                    {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                  </button>
+                )}
+              </div>
+              
+              {isExpanded && (
+                <>
+                  <p className={`text-sm whitespace-pre-wrap ${session.completed ? 'text-zinc-400 dark:text-zinc-500' : 'text-zinc-600 dark:text-zinc-300'}`}>
+                    {session.description || <span className="italic opacity-50">Aucune description</span>}
+                  </p>
+                  {session.sensations && (
+                    <div className="mt-3 p-3 bg-emerald-50 dark:bg-emerald-900/10 rounded-lg border border-emerald-100 dark:border-emerald-900/30">
+                      <p className="text-sm text-emerald-800 dark:text-emerald-300 flex items-start gap-2">
+                        <MessageSquare className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                        <span>{session.sensations}</span>
+                      </p>
+                    </div>
+                  )}
+                  {(session.sessionNutrition || session.dailyNutrition || session.dailyHydration) && (
+                    <div className="mt-4 space-y-2.5 bg-zinc-50 dark:bg-zinc-900/50 p-4 rounded-xl border border-zinc-100 dark:border-zinc-800/50">
+                      <h5 className="text-xs font-bold text-zinc-500 uppercase tracking-wider mb-1">Conseils & Nutrition</h5>
+                      {session.sessionNutrition && (
+                        <div className="flex items-start gap-2.5 text-sm">
+                          <Zap className="w-4 h-4 text-amber-500 mt-0.5 flex-shrink-0" />
+                          <div><span className="font-medium text-zinc-700 dark:text-zinc-300">Séance :</span> <span className="text-zinc-600 dark:text-zinc-400">{session.sessionNutrition}</span></div>
+                        </div>
+                      )}
+                      {session.dailyNutrition && (
+                        <div className="flex items-start gap-2.5 text-sm">
+                          <Apple className="w-4 h-4 text-emerald-500 mt-0.5 flex-shrink-0" />
+                          <div><span className="font-medium text-zinc-700 dark:text-zinc-300">Journée :</span> <span className="text-zinc-600 dark:text-zinc-400">{session.dailyNutrition}</span></div>
+                        </div>
+                      )}
+                      {session.dailyHydration && (
+                        <div className="flex items-start gap-2.5 text-sm">
+                          <Droplets className="w-4 h-4 text-blue-500 mt-0.5 flex-shrink-0" />
+                          <div><span className="font-medium text-zinc-700 dark:text-zinc-300">Hydratation :</span> <span className="text-zinc-600 dark:text-zinc-400">{session.dailyHydration}</span></div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {session.suuntoLink && (
+                    <a 
+                      href={session.suuntoLink} 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="mt-3 inline-flex items-center gap-1.5 text-sm font-medium text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 hover:underline"
+                    >
+                      <LinkIcon className="w-4 h-4" />
+                      Voir sur Suunto
+                    </a>
+                  )}
+                </>
+              )}
+            </div>
+
+            <div className={`flex items-center gap-1 transition-opacity ${isExpanded ? 'sm:opacity-0 group-hover:opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
+              <button 
+                onClick={(e) => { e.stopPropagation(); startEditing(session); }}
+                className="p-2 text-zinc-400 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 rounded-lg transition-colors"
+                title="Modifier"
+              >
+                <Edit2 className="w-4 h-4" />
+              </button>
+              <button 
+                onClick={(e) => { e.stopPropagation(); deleteSession(session.id); }}
+                className="p-2 text-zinc-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition-colors"
+                title="Supprimer"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 font-sans selection:bg-emerald-500/30">
       {/* Header */}
@@ -400,6 +662,19 @@ export default function App() {
               </button>
             </div>
 
+            {/* Today's Sessions */}
+            {todaysSessions.length > 0 && (
+              <div className="mb-8">
+                <h3 className="text-lg font-bold text-zinc-900 dark:text-zinc-100 mb-4 flex items-center gap-2">
+                  <Calendar className="w-5 h-5 text-emerald-500" />
+                  Aujourd'hui
+                </h3>
+                <div className="space-y-4">
+                  {todaysSessions.map(s => renderSessionCard(s, true))}
+                </div>
+              </div>
+            )}
+
             {/* Races Countdown Banner */}
             {races.length > 0 && (
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
@@ -472,151 +747,7 @@ export default function App() {
                               </button>
                             </div>
                           ) : (
-                            day.sessions.map(session => (
-                              <div 
-                                key={session.id} 
-                                className={`group relative bg-white dark:bg-zinc-900 border rounded-xl overflow-hidden transition-all ${
-                                  session.completed 
-                                    ? 'border-emerald-200 dark:border-emerald-900/50 bg-emerald-50/30 dark:bg-emerald-900/10' 
-                                    : 'border-zinc-200 dark:border-zinc-800 hover:border-zinc-300 dark:hover:border-zinc-700 shadow-sm'
-                                }`}
-                              >
-                                {isEditing === session.id ? (
-                                  <div className="p-4 sm:p-5 space-y-4">
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                      <div className="space-y-1.5">
-                                        <label className="text-sm font-medium flex items-center gap-2 text-zinc-700 dark:text-zinc-300">
-                                          <Calendar className="w-4 h-4" /> Date
-                                        </label>
-                                        <input 
-                                          type="date" 
-                                          value={editForm.date || ''} 
-                                          onChange={e => setEditForm({...editForm, date: e.target.value})}
-                                          className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none"
-                                        />
-                                      </div>
-                                      <div className="space-y-1.5">
-                                        <label className="text-sm font-medium flex items-center gap-2 text-zinc-700 dark:text-zinc-300">
-                                          <Activity className="w-4 h-4" /> Type de séance
-                                        </label>
-                                        <input 
-                                          type="text" 
-                                          placeholder="Ex: Endurance fondamentale..."
-                                          value={editForm.type || ''} 
-                                          onChange={e => setEditForm({...editForm, type: e.target.value})}
-                                          className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none"
-                                        />
-                                      </div>
-                                    </div>
-                                    <div className="space-y-1.5">
-                                      <label className="text-sm font-medium flex items-center gap-2 text-zinc-700 dark:text-zinc-300">
-                                        <AlignLeft className="w-4 h-4" /> Déroulement / Description
-                                      </label>
-                                      <textarea 
-                                        rows={3}
-                                        placeholder="Détails de la séance..."
-                                        value={editForm.description || ''} 
-                                        onChange={e => setEditForm({...editForm, description: e.target.value})}
-                                        className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none resize-y"
-                                      />
-                                    </div>
-                                    <div className="space-y-1.5">
-                                      <label className="text-sm font-medium flex items-center gap-2 text-zinc-700 dark:text-zinc-300">
-                                        <MessageSquare className="w-4 h-4" /> Sensations & Retour
-                                      </label>
-                                      <textarea 
-                                        rows={2}
-                                        placeholder="Comment s'est passée la séance ? (Fatigue, douleurs, facilité...)"
-                                        value={editForm.sensations || ''} 
-                                        onChange={e => setEditForm({...editForm, sensations: e.target.value})}
-                                        className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none resize-y"
-                                      />
-                                    </div>
-                                    <div className="space-y-1.5">
-                                      <label className="text-sm font-medium flex items-center gap-2 text-zinc-700 dark:text-zinc-300">
-                                        <LinkIcon className="w-4 h-4" /> Lien Suunto
-                                      </label>
-                                      <input 
-                                        type="url"
-                                        placeholder="https://maps.suunto.com/move/..."
-                                        value={editForm.suuntoLink || ''} 
-                                        onChange={e => setEditForm({...editForm, suuntoLink: e.target.value})}
-                                        className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none"
-                                      />
-                                    </div>
-                                    <div className="flex items-center justify-end gap-2 pt-2">
-                                      <button onClick={cancelEdit} className="px-4 py-2 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg font-medium transition-colors">
-                                        Annuler
-                                      </button>
-                                      <button onClick={saveEdit} className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-medium transition-colors">
-                                        <Save className="w-4 h-4" />
-                                        Enregistrer
-                                      </button>
-                                    </div>
-                                  </div>
-                                ) : (
-                                  <div className="flex flex-col sm:flex-row sm:items-start p-4 gap-4">
-                                    <button 
-                                      onClick={() => toggleCompleted(session.id)}
-                                      className={`flex-shrink-0 mt-0.5 transition-colors ${session.completed ? 'text-emerald-500' : 'text-zinc-300 dark:text-zinc-700 hover:text-emerald-500'}`}
-                                    >
-                                      {session.completed ? <CheckCircle2 className="w-5 h-5" /> : <Circle className="w-5 h-5" />}
-                                    </button>
-                                    
-                                    <div className="flex-grow min-w-0">
-                                      <div className="flex items-center gap-2 mb-1">
-                                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                                          session.completed 
-                                            ? 'bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400' 
-                                            : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-500/20 dark:text-emerald-300'
-                                        }`}>
-                                          {session.type}
-                                        </span>
-                                      </div>
-                                      <p className={`text-sm whitespace-pre-wrap ${session.completed ? 'text-zinc-400 dark:text-zinc-500' : 'text-zinc-600 dark:text-zinc-300'}`}>
-                                        {session.description || <span className="italic opacity-50">Aucune description</span>}
-                                      </p>
-                                      {session.sensations && (
-                                        <div className="mt-3 p-3 bg-emerald-50 dark:bg-emerald-900/10 rounded-lg border border-emerald-100 dark:border-emerald-900/30">
-                                          <p className="text-sm text-emerald-800 dark:text-emerald-300 flex items-start gap-2">
-                                            <MessageSquare className="w-4 h-4 mt-0.5 flex-shrink-0" />
-                                            <span>{session.sensations}</span>
-                                          </p>
-                                        </div>
-                                      )}
-                                      {session.suuntoLink && (
-                                        <a 
-                                          href={session.suuntoLink} 
-                                          target="_blank" 
-                                          rel="noopener noreferrer"
-                                          className="mt-3 inline-flex items-center gap-1.5 text-sm font-medium text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 hover:underline"
-                                        >
-                                          <LinkIcon className="w-4 h-4" />
-                                          Voir sur Suunto
-                                        </a>
-                                      )}
-                                    </div>
-
-                                    <div className="flex items-center gap-1 sm:opacity-0 group-hover:opacity-100 transition-opacity">
-                                      <button 
-                                        onClick={() => startEditing(session)}
-                                        className="p-2 text-zinc-400 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 rounded-lg transition-colors"
-                                        title="Modifier"
-                                      >
-                                        <Edit2 className="w-4 h-4" />
-                                      </button>
-                                      <button 
-                                        onClick={() => deleteSession(session.id)}
-                                        className="p-2 text-zinc-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition-colors"
-                                        title="Supprimer"
-                                      >
-                                        <Trash2 className="w-4 h-4" />
-                                      </button>
-                                    </div>
-                                  </div>
-                                )}
-                              </div>
-                            ))
+                            day.sessions.map(session => renderSessionCard(session, false))
                           )}
                         </div>
                       </div>
