@@ -62,6 +62,7 @@ export default function App() {
 
   const [isEditing, setIsEditing] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<Partial<Session>>({});
+  const [isGeneratingNutrition, setIsGeneratingNutrition] = useState(false);
   const [csvInput, setCsvInput] = useState('');
   const [newRace, setNewRace] = useState({ name: '', date: '' });
   
@@ -244,6 +245,30 @@ export default function App() {
     setIsEditing(null);
   };
 
+  const generateNutrition = async () => {
+    if (!editForm.type && !editForm.description) return;
+    setIsGeneratingNutrition(true);
+    try {
+      const response = await fetch('/api/generate-nutrition', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: editForm.type, description: editForm.description })
+      });
+      if (!response.ok) throw new Error('Failed to generate nutrition');
+      const data = await response.json();
+      setEditForm(prev => ({
+        ...prev,
+        sessionNutrition: data.sessionNutrition || prev.sessionNutrition,
+        dailyNutrition: data.dailyNutrition || prev.dailyNutrition,
+        dailyHydration: data.dailyHydration || prev.dailyHydration
+      }));
+    } catch (error) {
+      console.error('Error generating nutrition:', error);
+    } finally {
+      setIsGeneratingNutrition(false);
+    }
+  };
+
   const cancelEdit = () => {
     setIsEditing(null);
     setEditForm({});
@@ -418,7 +443,21 @@ export default function App() {
               />
             </div>
             <div className="space-y-3 pt-2 border-t border-zinc-200 dark:border-zinc-800">
-              <h4 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Nutrition & Hydratation</h4>
+              <div className="flex items-center justify-between">
+                <h4 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Nutrition & Hydratation</h4>
+                <button
+                  onClick={generateNutrition}
+                  disabled={isGeneratingNutrition || (!editForm.type && !editForm.description)}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-emerald-600 bg-emerald-50 hover:bg-emerald-100 dark:text-emerald-400 dark:bg-emerald-500/10 dark:hover:bg-emerald-500/20 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isGeneratingNutrition ? (
+                    <div className="w-3.5 h-3.5 border-2 border-emerald-600 dark:border-emerald-400 border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    <Zap className="w-3.5 h-3.5" />
+                  )}
+                  Générer avec l'IA
+                </button>
+              </div>
               <div className="space-y-1.5">
                 <label className="text-sm font-medium flex items-center gap-2 text-zinc-700 dark:text-zinc-300">
                   <Zap className="w-4 h-4" /> Conseil nutritif (pour la séance)
