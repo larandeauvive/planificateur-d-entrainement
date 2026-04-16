@@ -474,6 +474,46 @@ export default function App() {
                 />
               </div>
             </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium flex items-center gap-2 text-zinc-700 dark:text-zinc-300">
+                  Macrocycle
+                </label>
+                <input 
+                  type="text" 
+                  placeholder="Ex: Phase 2 : Fondamentale"
+                  value={editForm.macrocycle || ''} 
+                  onChange={e => setEditForm({...editForm, macrocycle: e.target.value})}
+                  className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium flex items-center gap-2 text-zinc-700 dark:text-zinc-300">
+                  Mésocycle
+                </label>
+                <input 
+                  type="text" 
+                  placeholder="Ex: Semaine 1 : Développement"
+                  value={editForm.mesocycle || ''} 
+                  onChange={e => setEditForm({...editForm, mesocycle: e.target.value})}
+                  className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium flex items-center gap-2 text-zinc-700 dark:text-zinc-300">
+                  Microcycle (Pilier)
+                </label>
+                <input 
+                  type="text" 
+                  placeholder="Ex: Pilier Cardio"
+                  value={editForm.microcycle || ''} 
+                  onChange={e => setEditForm({...editForm, microcycle: e.target.value})}
+                  className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                />
+              </div>
+            </div>
+
             <div className="space-y-1.5">
               <label className="text-sm font-medium flex items-center gap-2 text-zinc-700 dark:text-zinc-300">
                 <AlignLeft className="w-4 h-4" /> Déroulement / Description
@@ -612,6 +652,13 @@ export default function App() {
               
               {isExpanded && (
                 <>
+                  {(session.macrocycle || session.mesocycle || session.microcycle) && (
+                    <div className="flex flex-wrap gap-2 mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+                      {session.macrocycle && <span className="bg-zinc-100 dark:bg-zinc-800 px-2 py-1 rounded text-blue-600 dark:text-blue-400">{session.macrocycle}</span>}
+                      {session.mesocycle && <span className="bg-zinc-100 dark:bg-zinc-800 px-2 py-1 rounded text-indigo-600 dark:text-indigo-400">{session.mesocycle}</span>}
+                      {session.microcycle && <span className="bg-zinc-100 dark:bg-zinc-800 px-2 py-1 rounded text-teal-600 dark:text-teal-400">{session.microcycle}</span>}
+                    </div>
+                  )}
                   <p className={`text-sm whitespace-pre-wrap ${session.completed ? 'text-zinc-400 dark:text-zinc-500' : 'text-zinc-600 dark:text-zinc-300'}`}>
                     {session.description || <span className="italic opacity-50">Aucune description</span>}
                   </p>
