@@ -48,6 +48,8 @@ export default function App() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [isCloudLoaded, setIsCloudLoaded] = useState(false);
   const [expandedSessions, setExpandedSessions] = useState<Set<string>>(new Set());
+  const [showPastWeeks, setShowPastWeeks] = useState(false);
+  const [confirmDeleteWeek, setConfirmDeleteWeek] = useState<string | null>(null);
 
   const toggleSessionExpansion = (id: string) => {
     setExpandedSessions(prev => {
@@ -157,6 +159,15 @@ export default function App() {
     return () => unsubscribe();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const deleteWeekSessions = (weekStart: Date) => {
+    const weekEnd = addDays(weekStart, 6);
+    const newSessions = sessions.filter(s => {
+      const d = parseISO(s.date);
+      return d < weekStart || d > weekEnd;
+    });
+    updateData(newSessions, races);
+  };
 
   const processCsvData = (data: any[]) => {
     const imported: Session[] = data.map((row: any) => ({
@@ -417,7 +428,7 @@ export default function App() {
         key={session.id} 
         className={`group relative bg-white dark:bg-zinc-900 border rounded-xl overflow-hidden transition-all ${
           session.completed 
-            ? 'border-emerald-200 dark:border-emerald-900/50 bg-emerald-50/30 dark:bg-emerald-900/10' 
+            ? 'border-blue-200 dark:border-blue-900/50 bg-blue-50/30 dark:bg-blue-900/10' 
             : 'border-zinc-200 dark:border-zinc-800 hover:border-zinc-300 dark:hover:border-zinc-700 shadow-sm'
         }`}
       >
@@ -432,7 +443,7 @@ export default function App() {
                   type="date" 
                   value={editForm.date || ''} 
                   onChange={e => setEditForm({...editForm, date: e.target.value})}
-                  className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none"
+                  className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
                 />
               </div>
               <div className="space-y-1.5">
@@ -444,7 +455,7 @@ export default function App() {
                   placeholder="Ex: Endurance fondamentale..."
                   value={editForm.type || ''} 
                   onChange={e => setEditForm({...editForm, type: e.target.value})}
-                  className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none"
+                  className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
                 />
               </div>
             </div>
@@ -457,7 +468,7 @@ export default function App() {
                 placeholder="Détails de la séance..."
                 value={editForm.description || ''} 
                 onChange={e => setEditForm({...editForm, description: e.target.value})}
-                className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none resize-y"
+                className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none resize-y"
               />
             </div>
             <div className="space-y-1.5">
@@ -469,7 +480,7 @@ export default function App() {
                 placeholder="Comment s'est passée la séance ? (Fatigue, douleurs, facilité...)"
                 value={editForm.sensations || ''} 
                 onChange={e => setEditForm({...editForm, sensations: e.target.value})}
-                className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none resize-y"
+                className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none resize-y"
               />
             </div>
             <div className="space-y-1.5">
@@ -481,7 +492,7 @@ export default function App() {
                 placeholder="https://maps.suunto.com/move/..."
                 value={editForm.suuntoLink || ''} 
                 onChange={e => setEditForm({...editForm, suuntoLink: e.target.value})}
-                className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none"
+                className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
               />
             </div>
             <div className="space-y-3 pt-2 border-t border-zinc-200 dark:border-zinc-800">
@@ -490,10 +501,10 @@ export default function App() {
                 <button
                   onClick={generateNutrition}
                   disabled={isGeneratingNutrition || (!editForm.type && !editForm.description)}
-                  className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-emerald-600 bg-emerald-50 hover:bg-emerald-100 dark:text-emerald-400 dark:bg-emerald-500/10 dark:hover:bg-emerald-500/20 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 dark:text-blue-400 dark:bg-blue-500/10 dark:hover:bg-blue-500/20 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {isGeneratingNutrition ? (
-                    <div className="w-3.5 h-3.5 border-2 border-emerald-600 dark:border-emerald-400 border-t-transparent rounded-full animate-spin" />
+                    <div className="w-3.5 h-3.5 border-2 border-blue-600 dark:border-blue-400 border-t-transparent rounded-full animate-spin" />
                   ) : (
                     <Zap className="w-3.5 h-3.5" />
                   )}
@@ -509,7 +520,7 @@ export default function App() {
                   placeholder="Ex: 1 gel toutes les 45min, boisson iso..."
                   value={editForm.sessionNutrition || ''} 
                   onChange={e => setEditForm({...editForm, sessionNutrition: e.target.value})}
-                  className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none"
+                  className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
                 />
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -522,7 +533,7 @@ export default function App() {
                     placeholder="Ex: Charge glucidique, repas léger..."
                     value={editForm.dailyNutrition || ''} 
                     onChange={e => setEditForm({...editForm, dailyNutrition: e.target.value})}
-                    className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none"
+                    className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
                   />
                 </div>
                 <div className="space-y-1.5">
@@ -534,7 +545,7 @@ export default function App() {
                     placeholder="Ex: 1L St Yorre + 1.5L eau claire"
                     value={editForm.dailyHydration || ''} 
                     onChange={e => setEditForm({...editForm, dailyHydration: e.target.value})}
-                    className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none"
+                    className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
                   />
                 </div>
               </div>
@@ -543,7 +554,7 @@ export default function App() {
               <button onClick={cancelEdit} className="px-4 py-2 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg font-medium transition-colors">
                 Annuler
               </button>
-              <button onClick={saveEdit} className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-medium transition-colors">
+              <button onClick={saveEdit} className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors">
                 <Save className="w-4 h-4" />
                 Enregistrer
               </button>
@@ -553,7 +564,7 @@ export default function App() {
           <div className="flex flex-col sm:flex-row sm:items-start p-4 gap-4">
             <button 
               onClick={() => toggleCompleted(session.id)}
-              className={`flex-shrink-0 mt-0.5 transition-colors ${session.completed ? 'text-emerald-500' : 'text-zinc-300 dark:text-zinc-700 hover:text-emerald-500'}`}
+              className={`flex-shrink-0 mt-0.5 transition-colors ${session.completed ? 'text-blue-500' : 'text-zinc-300 dark:text-zinc-700 hover:text-blue-500'}`}
             >
               {session.completed ? <CheckCircle2 className="w-5 h-5" /> : <Circle className="w-5 h-5" />}
             </button>
@@ -567,7 +578,7 @@ export default function App() {
                   <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
                     session.completed 
                       ? 'bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400' 
-                      : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-500/20 dark:text-emerald-300'
+                      : 'bg-blue-100 text-blue-800 dark:bg-blue-500/20 dark:text-blue-300'
                   }`}>
                     {session.type}
                   </span>
@@ -590,8 +601,8 @@ export default function App() {
                     {session.description || <span className="italic opacity-50">Aucune description</span>}
                   </p>
                   {session.sensations && (
-                    <div className="mt-3 p-3 bg-emerald-50 dark:bg-emerald-900/10 rounded-lg border border-emerald-100 dark:border-emerald-900/30">
-                      <p className="text-sm text-emerald-800 dark:text-emerald-300 flex items-start gap-2">
+                    <div className="mt-3 p-3 bg-blue-50 dark:bg-blue-900/10 rounded-lg border border-blue-100 dark:border-blue-900/30">
+                      <p className="text-sm text-blue-800 dark:text-blue-300 flex items-start gap-2">
                         <MessageSquare className="w-4 h-4 mt-0.5 flex-shrink-0" />
                         <span>{session.sensations}</span>
                       </p>
@@ -608,7 +619,7 @@ export default function App() {
                       )}
                       {session.dailyNutrition && (
                         <div className="flex items-start gap-2.5 text-sm">
-                          <Apple className="w-4 h-4 text-emerald-500 mt-0.5 flex-shrink-0" />
+                          <Apple className="w-4 h-4 text-blue-500 mt-0.5 flex-shrink-0" />
                           <div><span className="font-medium text-zinc-700 dark:text-zinc-300">Journée :</span> <span className="text-zinc-600 dark:text-zinc-400">{session.dailyNutrition}</span></div>
                         </div>
                       )}
@@ -638,7 +649,7 @@ export default function App() {
             <div className={`flex items-center gap-1 transition-opacity ${isExpanded ? 'sm:opacity-0 group-hover:opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
               <button 
                 onClick={(e) => { e.stopPropagation(); startEditing(session); }}
-                className="p-2 text-zinc-400 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 rounded-lg transition-colors"
+                className="p-2 text-zinc-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-500/10 rounded-lg transition-colors"
                 title="Modifier"
               >
                 <Edit2 className="w-4 h-4" />
@@ -657,17 +668,36 @@ export default function App() {
     );
   };
 
+  // Scroll to current week on load or tab change
+  useEffect(() => {
+    if (activeTab === 'programme') {
+      const currentWeekId = `week-${format(startOfWeek(new Date(), { weekStartsOn: 1 }), 'yyyy-MM-dd')}`;
+      setTimeout(() => {
+        const element = document.getElementById(currentWeekId);
+        if (element) {
+          const headerOffset = 80;
+          const elementPosition = element.getBoundingClientRect().top;
+          const offsetPosition = elementPosition + window.pageYOffset - headerOffset;
+          window.scrollTo({
+            top: offsetPosition,
+            behavior: 'smooth'
+          });
+        }
+      }, 300);
+    }
+  }, [activeTab, activeProfileId]);
+
   return (
-    <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 font-sans selection:bg-emerald-500/30">
+    <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 font-sans selection:bg-blue-500/30">
       {/* Header */}
       <header className="bg-white dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 sticky top-0 z-10">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 bg-emerald-500 rounded-lg flex items-center justify-center text-white shadow-sm">
+            <div className="w-8 h-8 bg-blue-500 rounded-lg flex items-center justify-center text-white shadow-sm">
               <Dumbbell className="w-5 h-5" />
             </div>
             <h1 className="text-xl font-bold tracking-tight hidden md:block flex items-center gap-2">
-              FitPlan Studio <span className="text-xs font-normal text-zinc-400 bg-zinc-100 dark:bg-zinc-800 px-1.5 py-0.5 rounded-md ml-2">v2.1</span>
+              Minguen Coaching <span className="text-xs font-normal text-zinc-400 bg-zinc-100 dark:bg-zinc-800 px-1.5 py-0.5 rounded-md ml-2">v2.1</span>
             </h1>
             
             <div className="ml-2 sm:ml-4 border-l border-zinc-200 dark:border-zinc-800 pl-2 sm:pl-4">
@@ -690,7 +720,7 @@ export default function App() {
                     localStorage.setItem('fitplan-active-profile', e.target.value);
                   }
                 }}
-                className="bg-zinc-100 dark:bg-zinc-800 border-none text-sm font-medium rounded-lg px-2 py-1.5 focus:ring-2 focus:ring-emerald-500 outline-none cursor-pointer max-w-[120px] sm:max-w-[200px] truncate"
+                className="bg-zinc-100 dark:bg-zinc-800 border-none text-sm font-medium rounded-lg px-2 py-1.5 focus:ring-2 focus:ring-blue-500 outline-none cursor-pointer max-w-[120px] sm:max-w-[200px] truncate"
               >
                 {profiles.map(p => (
                   <option key={p.id} value={p.id}>{p.name}</option>
@@ -727,7 +757,7 @@ export default function App() {
           <div className="flex items-center gap-2 sm:gap-4">
             <div className="flex items-center gap-3">
               <div className="hidden sm:flex items-center gap-1.5 text-xs font-medium text-zinc-500 bg-zinc-100 dark:bg-zinc-800 px-2.5 py-1.5 rounded-full">
-                <Cloud className={`w-3.5 h-3.5 ${isSyncing ? 'text-emerald-500 animate-pulse' : isCloudLoaded ? 'text-emerald-500' : 'text-zinc-400'}`} />
+                <Cloud className={`w-3.5 h-3.5 ${isSyncing ? 'text-blue-500 animate-pulse' : isCloudLoaded ? 'text-blue-500' : 'text-zinc-400'}`} />
                 {isSyncing ? 'Synchronisation...' : isCloudLoaded ? 'Synchronisé sur le Cloud' : 'Connexion...'}
               </div>
             </div>
@@ -741,7 +771,7 @@ export default function App() {
             </button>
             <button 
               onClick={handleExport}
-              className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg transition-colors shadow-sm"
+              className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors shadow-sm"
               title="Exporter tout le programme"
             >
               <Download className="w-4 h-4" />
@@ -775,18 +805,18 @@ export default function App() {
             {/* Today's Sessions */}
             <div className="mb-8">
               <h3 className="text-lg font-bold text-zinc-900 dark:text-zinc-100 mb-4 flex items-center gap-2">
-                <Calendar className="w-5 h-5 text-emerald-500" />
+                <Calendar className="w-5 h-5 text-blue-500" />
                 Aujourd'hui
               </h3>
               <div className="space-y-4">
                 {todaysSessions.length > 0 ? (
                   todaysSessions.map(s => renderSessionCard(s, true))
                 ) : (
-                  <div className="flex items-center justify-between px-4 py-4 rounded-xl border border-dashed border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/50 group/empty transition-colors hover:border-emerald-200 dark:hover:border-emerald-900/50">
+                  <div className="flex items-center justify-between px-4 py-4 rounded-xl border border-dashed border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/50 group/empty transition-colors hover:border-blue-200 dark:hover:border-blue-900/50">
                     <span className="text-sm text-zinc-500 dark:text-zinc-400 italic">Aucune séance prévue aujourd'hui (Repos)</span>
                     <button 
                       onClick={() => addSession(todayStr)}
-                      className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-emerald-600 bg-emerald-50 hover:bg-emerald-100 dark:text-emerald-400 dark:bg-emerald-500/10 dark:hover:bg-emerald-500/20 rounded-lg transition-colors"
+                      className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 dark:text-blue-400 dark:bg-blue-500/10 dark:hover:bg-blue-500/20 rounded-lg transition-colors"
                     >
                       <Plus className="w-4 h-4" />
                       Ajouter
@@ -830,14 +860,24 @@ export default function App() {
                     <h3 className="text-lg font-bold text-zinc-900 dark:text-zinc-100 capitalize">
                       {weekLabel}
                     </h3>
-                    <button
-                      onClick={() => downloadWeekImage(weekId, weekLabel)}
-                      className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-emerald-600 bg-emerald-50 hover:bg-emerald-100 dark:text-emerald-400 dark:bg-emerald-500/10 dark:hover:bg-emerald-500/20 rounded-lg transition-colors"
-                      title="Télécharger le programme de la semaine en image"
-                    >
-                      <Camera className="w-4 h-4" />
-                      <span className="hidden sm:inline">Image</span>
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => setConfirmDeleteWeek(week.start.toISOString())}
+                        className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-red-600 bg-red-50 hover:bg-red-100 dark:text-red-400 dark:bg-red-500/10 dark:hover:bg-red-500/20 rounded-lg transition-colors"
+                        title="Vider la semaine"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                        <span className="hidden sm:inline">Vider</span>
+                      </button>
+                      <button
+                        onClick={() => downloadWeekImage(weekId, weekLabel)}
+                        className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 dark:text-blue-400 dark:bg-blue-500/10 dark:hover:bg-blue-500/20 rounded-lg transition-colors"
+                        title="Télécharger le programme de la semaine en image"
+                      >
+                        <Camera className="w-4 h-4" />
+                        <span className="hidden sm:inline">Image</span>
+                      </button>
+                    </div>
                   </div>
 
                   {/* Days List */}
@@ -857,11 +897,11 @@ export default function App() {
                         {/* Sessions Column */}
                         <div className="flex-grow space-y-3">
                           {day.sessions.length === 0 ? (
-                            <div className="h-full min-h-[3.5rem] flex items-center justify-between px-4 py-3 rounded-xl border border-dashed border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/50 group/empty transition-colors hover:border-emerald-200 dark:hover:border-emerald-900/50">
+                            <div className="h-full min-h-[3.5rem] flex items-center justify-between px-4 py-3 rounded-xl border border-dashed border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/50 group/empty transition-colors hover:border-blue-200 dark:hover:border-blue-900/50">
                               <span className="text-sm text-zinc-400 dark:text-zinc-500 italic">Repos</span>
                               <button 
                                 onClick={() => addSession(day.dateStr)}
-                                className="p-1.5 text-zinc-400 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 rounded-lg transition-all opacity-0 group-hover/empty:opacity-100 sm:focus:opacity-100"
+                                className="p-1.5 text-zinc-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-500/10 rounded-lg transition-all opacity-0 group-hover/empty:opacity-100 sm:focus:opacity-100"
                                 title="Ajouter une séance ce jour"
                               >
                                 <Plus className="w-5 h-5" />
@@ -899,7 +939,7 @@ export default function App() {
                     placeholder="Ex: Marathon de Paris"
                     value={newRace.name}
                     onChange={e => setNewRace({...newRace, name: e.target.value})}
-                    className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none"
+                    className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
                   />
                 </div>
                 <div>
@@ -908,7 +948,7 @@ export default function App() {
                     type="date" 
                     value={newRace.date}
                     onChange={e => setNewRace({...newRace, date: e.target.value})}
-                    className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none"
+                    className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
                   />
                 </div>
               </div>
@@ -916,7 +956,7 @@ export default function App() {
                 <button 
                   onClick={handleAddRace}
                   disabled={!newRace.name || !newRace.date}
-                  className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg font-medium transition-colors"
+                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg font-medium transition-colors"
                 >
                   <Plus className="w-4 h-4" />
                   Ajouter l'objectif
@@ -990,7 +1030,7 @@ export default function App() {
                   value={csvInput}
                   onChange={e => setCsvInput(e.target.value)}
                   placeholder="Date,Type,Description,Sensations,Terminé&#10;2024-05-12,Endurance,Footing 45min,Très bonnes sensations,OUI&#10;2024-05-14,Fractionné,10x400m,,NON"
-                  className="w-full h-64 px-4 py-3 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none font-mono text-sm whitespace-pre"
+                  className="w-full h-64 px-4 py-3 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none font-mono text-sm whitespace-pre"
                 />
                 <p className="text-xs text-zinc-500">
                   Astuce : Les séances importées s'ajouteront à votre programme existant. Si vous importez des séances à des dates où vous en avez déjà, elles s'ajouteront à la suite.
@@ -1017,7 +1057,7 @@ export default function App() {
                 <button 
                   onClick={handleTextCsvImport}
                   disabled={!csvInput.trim()}
-                  className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg font-medium transition-colors"
+                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg font-medium transition-colors"
                 >
                   <Plus className="w-4 h-4" />
                   Ajouter ces séances
@@ -1028,6 +1068,34 @@ export default function App() {
         )}
 
       </main>
+      {/* Delete Week Confirmation Modal */}
+      {confirmDeleteWeek && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-zinc-900 rounded-2xl p-6 max-w-md w-full shadow-xl border border-zinc-200 dark:border-zinc-800">
+            <h3 className="text-xl font-bold mb-4">Vider la semaine ?</h3>
+            <p className="text-zinc-600 dark:text-zinc-400 mb-6">
+              Êtes-vous sûr de vouloir supprimer toutes les séances de cette semaine ? Cette action est irréversible.
+            </p>
+            <div className="flex justify-end gap-3">
+              <button 
+                onClick={() => setConfirmDeleteWeek(null)}
+                className="px-4 py-2 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg font-medium transition-colors"
+              >
+                Annuler
+              </button>
+              <button 
+                onClick={() => {
+                  deleteWeekSessions(new Date(confirmDeleteWeek));
+                  setConfirmDeleteWeek(null);
+                }}
+                className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-medium transition-colors"
+              >
+                Supprimer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
