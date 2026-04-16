@@ -228,6 +228,9 @@ export default function App() {
       Type: s.type,
       Description: s.description,
       Sensations: s.sensations || '',
+      Macrocycle: s.macrocycle || '',
+      Mesocycle: s.mesocycle || '',
+      Microcycle: s.microcycle || '',
       'Conseil séance': s.sessionNutrition || '',
       'Nutrition journée': s.dailyNutrition || '',
       'Hydratation journée': s.dailyHydration || '',
@@ -256,6 +259,9 @@ export default function App() {
       Type: s.type,
       Description: s.description,
       Sensations: s.sensations || '',
+      Macrocycle: s.macrocycle || '',
+      Mesocycle: s.mesocycle || '',
+      Microcycle: s.microcycle || '',
       'Conseil séance': s.sessionNutrition || '',
       'Nutrition journée': s.dailyNutrition || '',
       'Hydratation journée': s.dailyHydration || '',
@@ -1184,12 +1190,12 @@ export default function App() {
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <label className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Collez le texte CSV ici</label>
-                  <span className="text-xs text-zinc-500 font-mono">Format : Date, Type, Description, Sensations, Terminé</span>
+                  <span className="text-xs text-zinc-500 font-mono">Format supporté : Date, Type, Description, Sensations, Macrocycle, Mesocycle, Microcycle, Terminé</span>
                 </div>
                 <textarea 
                   value={csvInput}
                   onChange={e => setCsvInput(e.target.value)}
-                  placeholder="Date,Type,Description,Sensations,Terminé&#10;2024-05-12,Endurance,Footing 45min,Très bonnes sensations,OUI&#10;2024-05-14,Fractionné,10x400m,,NON"
+                  placeholder="Date,Type,Description,Sensations,Macrocycle,Mesocycle,Microcycle,Terminé&#10;2024-05-12,Endurance,Footing 45min,Très bonnes sensations,Phase 2 : Fondamentale,Semaine 1,Pilier Endurance,OUI&#10;2024-05-14,Fractionné,10x400m,,,,NON"
                   className="w-full h-64 px-4 py-3 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none font-mono text-sm whitespace-pre"
                 />
                 <p className="text-xs text-zinc-500">
