@@ -18,12 +18,16 @@ interface Session {
   sessionNutrition?: string;
   dailyNutrition?: string;
   dailyHydration?: string;
+  macrocycle?: string;
+  mesocycle?: string;
+  microcycle?: string;
 }
 
 interface Race {
   id: string;
   name: string;
   date: string;
+  isMainObjective?: boolean;
 }
 
 interface Profile {
@@ -172,7 +176,7 @@ export default function App() {
   const processCsvData = (data: any[]) => {
     const imported: Session[] = data.map((row: any) => ({
       id: crypto.randomUUID(),
-      date: row.Date || row.date || '',
+      date: typeof row.date === 'string' ? (row.date.includes('/') ? row.date.split('/').reverse().join('-') : row.date) : row.Date || format(new Date(), 'yyyy-MM-dd'),
       type: row.Type || row.type || '',
       description: row.Description || row.description || row.Déroulement || row.deroulement || '',
       sensations: row.Sensations || row.sensations || row.Ressenti || row.ressenti || '',
@@ -180,6 +184,9 @@ export default function App() {
       sessionNutrition: row['Conseil séance'] || row.sessionNutrition || '',
       dailyNutrition: row['Nutrition journée'] || row.dailyNutrition || '',
       dailyHydration: row['Hydratation journée'] || row.dailyHydration || '',
+      macrocycle: row.Macrocycle || row.macrocycle || '',
+      mesocycle: row.Mesocycle || row.mesocycle || '',
+      microcycle: row.Microcycle || row.microcycle || row.Pilier || row.pilier || '',
       completed: (row.Terminé || row.termine || row.Completed || '').toUpperCase() === 'OUI'
     })).filter(s => s.date);
 
@@ -352,6 +359,14 @@ export default function App() {
       const newRaces = races.filter(r => r.id !== id);
       updateData(sessions, newRaces);
     }
+  };
+
+  const handleSetMainObjective = (id: string) => {
+    const updatedRaces = races.map(r => ({
+      ...r,
+      isMainObjective: r.id === id
+    }));
+    updateData(sessions, updatedRaces);
   };
 
   const downloadWeekImage = async (weekId: string, weekLabel: string) => {
@@ -687,6 +702,62 @@ export default function App() {
     }
   }, [activeTab, activeProfileId]);
 
+  const getCurrentPhases = () => {
+    const todayStr = format(new Date(), 'yyyy-MM-dd');
+    const todaySession = sessions.find(s => s.date === todayStr);
+
+    let macro = todaySession?.macrocycle || '';
+    let meso = todaySession?.mesocycle || '';
+    let micro = todaySession?.microcycle || '';
+
+    const mainRace = races.find(r => r.isMainObjective);
+
+    if (mainRace && (!macro || !meso)) {
+      const raceD = startOfDay(parseISO(mainRace.date));
+      const currentD = startOfDay(new Date());
+      const daysToRace = differenceInDays(raceD, currentD);
+      const weeksToRace = Math.floor(daysToRace / 7);
+
+      if (!macro) {
+        if (daysToRace < 0) macro = "Phase 1 : Transition";
+        else if (weeksToRace <= 3) macro = "Phase 4 : Affûtage";
+        else if (weeksToRace <= 12) macro = "Phase 3 : Spécifique";
+        else if (weeksToRace <= 24) macro = "Phase 2 : Fondamentale";
+        else macro = "Phase 1 : Transition";
+      }
+
+      if (!meso) {
+        if (daysToRace < 0) meso = "Récupération";
+        else if (weeksToRace <= 3) {
+           if (weeksToRace === 0) meso = "Semaine 4 : Assimilation";
+           else if (weeksToRace === 1) meso = "Semaine 3 : Surcharge";
+           else meso = "Semaine 2 : Développement";
+        } else {
+           const offset = weeksToRace % 4; 
+           if (offset === 0) meso = "Semaine 4 : Assimilation";
+           else if (offset === 1) meso = "Semaine 3 : Choc";
+           else if (offset === 2) meso = "Semaine 2 : Surcharge";
+           else meso = "Semaine 1 : Développement";
+        }
+      }
+    }
+
+    if (!micro && todaySession && todaySession.type) {
+      const t = todaySession.type.toLowerCase();
+      if (t.includes('cardio') || t.includes('fractionné') || t.includes('vma') || t.includes('intensité') || t.includes('seuil')) micro = "Pilier Cardio";
+      else if (t.includes('renfo') || t.includes('ppg') || t.includes('gainage')) micro = "Pilier Renforcement";
+      else if (t.includes('volume') || t.includes('long')) micro = "Pilier Volume";
+      else if (t.includes('repos') || t.includes('récup') || t.includes('regeneration') || t.includes('régénération')) micro = "Pilier Régénération";
+      else micro = "Pilier Endurance";
+    }
+
+    return {
+      macro: macro || (mainRace ? "Calcul en cours..." : "Non défini (Fixer un objectif)"),
+      meso: meso || (mainRace ? "Calcul en cours..." : "-"),
+      micro: micro || (todaySession ? "Pilier Endurance" : "Pas de séance aujourd'hui")
+    };
+  };
+
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 font-sans selection:bg-blue-500/30">
       {/* Header */}
@@ -800,6 +871,37 @@ export default function App() {
                 <span className="hidden sm:inline">Ajouter une séance</span>
                 <span className="sm:hidden">Ajouter</span>
               </button>
+            </div>
+
+            {/* Cycle Phases Indicators */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="bg-white dark:bg-zinc-900 px-5 py-4 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-sm flex items-start gap-4">
+                <div className="w-10 h-10 bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-500 rounded-lg flex items-center justify-center flex-shrink-0">
+                  <Flag className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-semibold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider mb-1">Macrocycle</h4>
+                  <div className="font-bold text-zinc-900 dark:text-zinc-100">{getCurrentPhases().macro}</div>
+                </div>
+              </div>
+              <div className="bg-white dark:bg-zinc-900 px-5 py-4 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-sm flex items-start gap-4">
+                <div className="w-10 h-10 bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-500 rounded-lg flex items-center justify-center flex-shrink-0">
+                  <Calendar className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-semibold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider mb-1">Mésocycle</h4>
+                  <div className="font-bold text-zinc-900 dark:text-zinc-100">{getCurrentPhases().meso}</div>
+                </div>
+              </div>
+              <div className="bg-white dark:bg-zinc-900 px-5 py-4 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-sm flex items-start gap-4">
+                <div className="w-10 h-10 bg-teal-100 dark:bg-teal-900/30 text-teal-600 dark:text-teal-500 rounded-lg flex items-center justify-center flex-shrink-0">
+                  <Activity className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-semibold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider mb-1">Microcycle (Aujourd'hui)</h4>
+                  <div className="font-bold text-zinc-900 dark:text-zinc-100">{getCurrentPhases().micro}</div>
+                </div>
+              </div>
             </div>
 
             {/* Today's Sessions */}
@@ -989,7 +1091,18 @@ export default function App() {
                           </div>
                         </div>
                         <div className="flex items-center gap-6">
-                          <div className="text-right hidden sm:block">
+                          <label className="flex items-center gap-2 cursor-pointer text-sm text-zinc-600 dark:text-zinc-400 font-medium whitespace-nowrap">
+                            <input 
+                              type="radio" 
+                              name="mainObjective" 
+                              checked={race.isMainObjective || false}
+                              onChange={() => handleSetMainObjective(race.id)}
+                              className="w-4 h-4 text-blue-600 bg-zinc-100 border-zinc-300 focus:ring-blue-500 dark:focus:ring-blue-600 dark:ring-offset-zinc-800 focus:ring-2 dark:bg-zinc-700 dark:border-zinc-600 cursor-pointer"
+                            />
+                            <span className="hidden sm:inline">Objectif Principal</span>
+                            <span className="sm:hidden">Principal</span>
+                          </label>
+                          <div className="text-right hidden md:block">
                             <div className="text-2xl font-bold text-amber-600 dark:text-amber-500">
                               {days > 0 ? `J-${days}` : days === 0 ? "Aujourd'hui" : 'Terminée'}
                             </div>
