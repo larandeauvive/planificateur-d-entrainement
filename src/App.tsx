@@ -54,6 +54,7 @@ export default function App() {
   const [expandedSessions, setExpandedSessions] = useState<Set<string>>(new Set());
   const [showPastWeeks, setShowPastWeeks] = useState(false);
   const [confirmDeleteWeek, setConfirmDeleteWeek] = useState<string | null>(null);
+  const [importMode, setImportMode] = useState<'add' | 'replace'>('replace');
 
   const toggleSessionExpansion = (id: string) => {
     setExpandedSessions(prev => {
@@ -190,7 +191,13 @@ export default function App() {
       completed: (row.Terminé || row.termine || row.Completed || '').toUpperCase() === 'OUI'
     })).filter(s => s.date);
 
-    const combined = [...sessions, ...imported].sort((a, b) => a.date.localeCompare(b.date));
+    let baseSessions = [...sessions];
+    if (importMode === 'replace') {
+      const importedDates = new Set(imported.map(s => s.date));
+      baseSessions = baseSessions.filter(s => !importedDates.has(s.date));
+    }
+
+    const combined = [...baseSessions, ...imported].sort((a, b) => a.date.localeCompare(b.date));
     updateData(combined, races);
   };
 
@@ -394,7 +401,7 @@ export default function App() {
     }
   };
 
-  // Group sessions by week (always show current week + 4 future weeks)
+  // Group sessions by week (always show current week + 4 future weeks, or past weeks if toggled)
   const weeks = useMemo(() => {
     const validSessions = sessions.filter(s => isValid(parseISO(s.date)));
     
@@ -406,7 +413,7 @@ export default function App() {
     validSessions.forEach(s => {
       const d = parseISO(s.date);
       const ws = startOfWeek(d, { weekStartsOn: 1 });
-      if (ws < minDate) minDate = ws;
+      if (showPastWeeks && ws < minDate) minDate = ws;
       if (ws > maxDate) maxDate = ws;
     });
 
@@ -423,23 +430,26 @@ export default function App() {
     let current = minDate;
     while (current <= maxDate) {
       const key = format(current, 'yyyy-MM-dd');
-      const weekDays = Array.from({ length: 7 }).map((_, i) => addDays(current, i));
-      
-      result.push({
-        start: current,
-        end: addDays(current, 6),
-        days: weekDays.map(day => ({
-          date: day,
-          dateStr: format(day, 'yyyy-MM-dd'),
-          sessions: (groups.get(key) || []).filter(s => s.date === format(day, 'yyyy-MM-dd'))
-        }))
-      });
+      // Only include weeks if they are >= currentWeekStart OR showPastWeeks is true
+      if (showPastWeeks || current >= currentWeekStart) {
+        const weekDays = Array.from({ length: 7 }).map((_, i) => addDays(current, i));
+        
+        result.push({
+          start: current,
+          end: addDays(current, 6),
+          days: weekDays.map(day => ({
+            date: day,
+            dateStr: format(day, 'yyyy-MM-dd'),
+            sessions: (groups.get(key) || []).filter(s => s.date === format(day, 'yyyy-MM-dd'))
+          }))
+        });
+      }
       
       current = addDays(current, 7);
     }
 
     return result;
-  }, [sessions]);
+  }, [sessions, showPastWeeks]);
 
   const renderSessionCard = (session: Session, isTodayTopView: boolean = false) => {
     const isExpanded = isTodayTopView || expandedSessions.has(session.id);
@@ -1003,6 +1013,24 @@ export default function App() {
               </div>
             )}
 
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-xl font-bold tracking-tight">Semaines d'entraînement</h3>
+              <button
+                onClick={() => setShowPastWeeks(!showPastWeeks)}
+                className="text-sm font-medium text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100 flex items-center gap-2 py-1 px-3 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+              >
+                {showPastWeeks ? (
+                  <>
+                    <ChevronUp className="w-4 h-4" /> Masquer les semaines passées
+                  </>
+                ) : (
+                  <>
+                    <ChevronDown className="w-4 h-4" /> Afficher les semaines passées
+                  </>
+                )}
+              </button>
+            </div>
+
             <div className="space-y-10">
               {weeks.map((week) => {
                 const weekId = `week-${format(week.start, 'yyyy-MM-dd')}`;
@@ -1186,11 +1214,49 @@ export default function App() {
               <p className="text-zinc-500 dark:text-zinc-400 mt-1">Collez vos données CSV ci-dessous pour compléter votre programme.</p>
             </div>
             
-            <div className="bg-white dark:bg-zinc-900 p-6 rounded-2xl border border-zinc-200 dark:border-zinc-800 shadow-sm space-y-4">
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <label className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Collez le texte CSV ici</label>
-                  <span className="text-xs text-zinc-500 font-mono">Format supporté : Date, Type, Description, Sensations, Macrocycle, Mesocycle, Microcycle, Terminé</span>
+            <div className="bg-white dark:bg-zinc-900 p-6 rounded-2xl border border-zinc-200 dark:border-zinc-800 shadow-sm space-y-6">
+              <div className="flex flex-col gap-3">
+                <label className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Mode d'importation</label>
+                <div className="flex flex-col sm:flex-row gap-4">
+                  <label className={`flex items-center gap-3 cursor-pointer p-4 rounded-xl border transition-colors flex-1 ${importMode === 'replace' ? 'border-blue-500 bg-blue-50/50 dark:bg-blue-900/10' : 'border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800/50'}`}>
+                    <input 
+                      type="radio" 
+                      name="importMode" 
+                      checked={importMode === 'replace'} 
+                      onChange={() => setImportMode('replace')}
+                      className="w-4 h-4 text-blue-600 focus:ring-blue-500 hidden"
+                    />
+                    <div className="w-4 h-4 rounded-full border border-zinc-300 dark:border-zinc-600 flex items-center justify-center flex-shrink-0">
+                      {importMode === 'replace' && <div className="w-2 h-2 rounded-full bg-blue-600" />}
+                    </div>
+                    <div className="flex flex-col">
+                      <span className="text-sm font-bold text-zinc-900 dark:text-zinc-100">Mettre à jour</span>
+                      <span className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">Remplace les séances existantes sur les mêmes dates.</span>
+                    </div>
+                  </label>
+                  <label className={`flex items-center gap-3 cursor-pointer p-4 rounded-xl border transition-colors flex-1 ${importMode === 'add' ? 'border-blue-500 bg-blue-50/50 dark:bg-blue-900/10' : 'border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800/50'}`}>
+                    <input 
+                      type="radio" 
+                      name="importMode" 
+                      checked={importMode === 'add'} 
+                      onChange={() => setImportMode('add')}
+                      className="w-4 h-4 text-blue-600 focus:ring-blue-500 hidden"
+                    />
+                    <div className="w-4 h-4 rounded-full border border-zinc-300 dark:border-zinc-600 flex items-center justify-center flex-shrink-0">
+                      {importMode === 'add' && <div className="w-2 h-2 rounded-full bg-blue-600" />}
+                    </div>
+                    <div className="flex flex-col">
+                      <span className="text-sm font-bold text-zinc-900 dark:text-zinc-100">Ajouter à la suite</span>
+                      <span className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">Ajoute les séances sans supprimer les existantes.</span>
+                    </div>
+                  </label>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <label className="text-sm font-bold text-zinc-900 dark:text-zinc-100">Collez le texte CSV ici</label>
+                  <span className="text-[11px] text-zinc-500 font-mono bg-zinc-100 dark:bg-zinc-800 px-2 py-1 rounded">Format : Date,Type,Description,...</span>
                 </div>
                 <textarea 
                   value={csvInput}
@@ -1198,13 +1264,9 @@ export default function App() {
                   placeholder="Date,Type,Description,Sensations,Macrocycle,Mesocycle,Microcycle,Terminé&#10;2024-05-12,Endurance,Footing 45min,Très bonnes sensations,Phase 2 : Fondamentale,Semaine 1,Pilier Endurance,OUI&#10;2024-05-14,Fractionné,10x400m,,,,NON"
                   className="w-full h-64 px-4 py-3 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none font-mono text-sm whitespace-pre"
                 />
-                <p className="text-xs text-zinc-500">
-                  Astuce : Les séances importées s'ajouteront à votre programme existant. Si vous importez des séances à des dates où vous en avez déjà, elles s'ajouteront à la suite.
-                </p>
               </div>
-              <div className="flex items-center justify-between pt-2">
-                <div className="flex items-center gap-3">
-                  <span className="text-sm text-zinc-500">Ou importer un fichier :</span>
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-2">
+                <div className="flex items-center gap-3 w-full sm:w-auto">
                   <input 
                     type="file" 
                     accept=".csv" 
@@ -1214,19 +1276,19 @@ export default function App() {
                   />
                   <button 
                     onClick={() => fileInputRef.current?.click()}
-                    className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-zinc-700 dark:text-zinc-300 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 rounded-lg transition-colors"
+                    className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium text-zinc-700 dark:text-zinc-300 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 rounded-xl transition-colors"
                   >
-                    <Upload className="w-4 h-4" />
-                    Choisir un fichier
+                    <Upload className="w-5 h-5 text-zinc-500" />
+                    Importer un fichier
                   </button>
                 </div>
                 <button 
                   onClick={handleTextCsvImport}
                   disabled={!csvInput.trim()}
-                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg font-medium transition-colors"
+                  className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl font-bold transition-colors shadow-sm"
                 >
-                  <Plus className="w-4 h-4" />
-                  Ajouter ces séances
+                  <Plus className="w-5 h-5" />
+                  {importMode === 'replace' ? 'Mettre à jour via le texte' : 'Ajouter via le texte'}
                 </button>
               </div>
             </div>
