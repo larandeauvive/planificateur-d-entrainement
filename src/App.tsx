@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Upload, Download, Plus, Trash2, Edit2, CheckCircle2, Circle, Calendar, Activity, AlignLeft, Save, FileSpreadsheet, Dumbbell, Trophy, LayoutDashboard, FileText, Flag, MessageSquare, Cloud, Camera, Link as LinkIcon, History, Apple, Droplets, Zap, ChevronDown, ChevronUp } from 'lucide-react';
+import { Upload, Download, Plus, Trash2, Edit2, CheckCircle2, Circle, Calendar, Activity, AlignLeft, Save, FileSpreadsheet, Dumbbell, Trophy, LayoutDashboard, FileText, Flag, MessageSquare, Cloud, Camera, Link as LinkIcon, History, Apple, Droplets, Zap, ChevronDown, ChevronUp, Clock } from 'lucide-react';
 import Papa from 'papaparse';
 import { toPng } from 'html-to-image';
 import { format, parseISO, isValid, startOfWeek, addDays, differenceInDays, startOfDay } from 'date-fns';
@@ -29,6 +29,23 @@ interface Race {
   date: string;
   isMainObjective?: boolean;
 }
+
+interface Availability {
+  dayOfWeek: number;
+  dayName: string;
+  isAvailable: boolean;
+  duration: string;
+}
+
+const DEFAULT_AVAILABILITIES: Availability[] = [
+  { dayOfWeek: 1, dayName: 'Lundi', isAvailable: false, duration: '' },
+  { dayOfWeek: 2, dayName: 'Mardi', isAvailable: false, duration: '' },
+  { dayOfWeek: 3, dayName: 'Mercredi', isAvailable: false, duration: '' },
+  { dayOfWeek: 4, dayName: 'Jeudi', isAvailable: false, duration: '' },
+  { dayOfWeek: 5, dayName: 'Vendredi', isAvailable: false, duration: '' },
+  { dayOfWeek: 6, dayName: 'Samedi', isAvailable: false, duration: '' },
+  { dayOfWeek: 7, dayName: 'Dimanche', isAvailable: false, duration: '' },
+];
 
 interface Profile {
   id: string;
@@ -89,20 +106,24 @@ export default function App() {
   const [isGeneratingNutrition, setIsGeneratingNutrition] = useState(false);
   const [csvInput, setCsvInput] = useState('');
   const [newRace, setNewRace] = useState({ name: '', date: '' });
+  const [availabilities, setAvailabilities] = useState<Availability[]>(DEFAULT_AVAILABILITIES);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const updateData = async (newSessions: Session[], newRaces: Race[], profileId: string = activeProfileId) => {
+  const updateData = async (newSessions: Session[], newRaces: Race[], newAvailabilities: Availability[] = availabilities, profileId: string = activeProfileId) => {
     setSessions(newSessions);
     setRaces(newRaces);
+    setAvailabilities(newAvailabilities);
     localStorage.setItem(`fitplan-sessions-${profileId}`, JSON.stringify(newSessions));
     localStorage.setItem(`fitplan-races-${profileId}`, JSON.stringify(newRaces));
+    localStorage.setItem(`fitplan-availabilities-${profileId}`, JSON.stringify(newAvailabilities));
     
     setIsSyncing(true);
     try {
       await setDoc(doc(db, 'plans', profileId), {
         sessions: newSessions,
         races: newRaces,
+        availabilities: newAvailabilities,
         updatedAt: new Date().toISOString()
       });
     } catch (error) {
@@ -122,19 +143,24 @@ export default function App() {
         const data = docSnap.data();
         const cloudSessions = data.sessions || [];
         const cloudRaces = data.races || [];
+        const cloudAvailabilities = data.availabilities || DEFAULT_AVAILABILITIES;
         
         setSessions(cloudSessions);
         setRaces(cloudRaces);
+        setAvailabilities(cloudAvailabilities);
         localStorage.setItem(`fitplan-sessions-${activeProfileId}`, JSON.stringify(cloudSessions));
         localStorage.setItem(`fitplan-races-${activeProfileId}`, JSON.stringify(cloudRaces));
+        localStorage.setItem(`fitplan-availabilities-${activeProfileId}`, JSON.stringify(cloudAvailabilities));
       } else {
         // If cloud is empty, try to load local data or upload empty
         const localSessions = JSON.parse(localStorage.getItem(`fitplan-sessions-${activeProfileId}`) || '[]');
         const localRaces = JSON.parse(localStorage.getItem(`fitplan-races-${activeProfileId}`) || '[]');
+        const localAvailabilities = JSON.parse(localStorage.getItem(`fitplan-availabilities-${activeProfileId}`) || JSON.stringify(DEFAULT_AVAILABILITIES));
         setSessions(localSessions);
         setRaces(localRaces);
+        setAvailabilities(localAvailabilities);
         if (localSessions.length > 0 || localRaces.length > 0) {
-          updateData(localSessions, localRaces, activeProfileId);
+          updateData(localSessions, localRaces, localAvailabilities, activeProfileId);
         }
       }
       setIsCloudLoaded(true);
@@ -380,6 +406,21 @@ export default function App() {
       isMainObjective: r.id === id
     }));
     updateData(sessions, updatedRaces);
+  };
+
+  // Availability Management
+  const toggleAvailability = (dayOfWeek: number) => {
+    const newAvails = availabilities.map(a => 
+      a.dayOfWeek === dayOfWeek ? { ...a, isAvailable: !a.isAvailable } : a
+    );
+    updateData(sessions, races, newAvails);
+  };
+
+  const updateAvailabilityDuration = (dayOfWeek: number, duration: string) => {
+    const newAvails = availabilities.map(a => 
+      a.dayOfWeek === dayOfWeek ? { ...a, duration } : a
+    );
+    updateData(sessions, races, newAvails);
   };
 
   const downloadWeekImage = async (weekId: string, weekLabel: string) => {
@@ -1202,6 +1243,53 @@ export default function App() {
                   })}
                 </div>
               )}
+            </div>
+
+            {/* Disponibilités d'entraînement */}
+            <div className="space-y-4 pt-6 border-t border-zinc-200 dark:border-zinc-800">
+              <div>
+                <h3 className="text-lg font-semibold flex items-center gap-2">
+                  <Clock className="w-5 h-5 text-blue-500" />
+                  Mes disponibilités d'entraînement
+                </h3>
+                <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-1">Cochez les jours où vous pouvez vous entraîner et indiquez votre durée ou créneau disponible.</p>
+              </div>
+
+              <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 shadow-sm overflow-hidden">
+                <div className="divide-y divide-zinc-200 dark:divide-zinc-800">
+                  {availabilities.map((avail) => (
+                    <div key={avail.dayOfWeek} className="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center gap-4 hover:bg-zinc-50 dark:hover:bg-zinc-900/50 transition-colors">
+                      <div className="flex items-center gap-4 sm:w-1/3">
+                        <label className="flex items-center gap-3 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={avail.isAvailable}
+                            onChange={() => toggleAvailability(avail.dayOfWeek)}
+                            className="w-5 h-5 text-blue-600 bg-zinc-100 border-zinc-300 rounded focus:ring-blue-500 dark:focus:ring-blue-600 dark:ring-offset-zinc-900 focus:ring-2 dark:bg-zinc-800 dark:border-zinc-700 cursor-pointer"
+                          />
+                          <span className={`font-medium ${avail.isAvailable ? 'text-zinc-900 dark:text-zinc-100' : 'text-zinc-500 dark:text-zinc-500'}`}>
+                            {avail.dayName}
+                          </span>
+                        </label>
+                      </div>
+                      
+                      <div className="flex-grow">
+                        {avail.isAvailable && (
+                          <div className="flex items-center gap-3">
+                            <input
+                              type="text"
+                              value={avail.duration}
+                              onChange={(e) => updateAvailabilityDuration(avail.dayOfWeek, e.target.value)}
+                              placeholder="Ex: Journée complète, 1h le soir, Entre midi et deux..."
+                              className="w-full px-3 py-2 text-sm bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition-shadow"
+                            />
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
           </div>
         )}
