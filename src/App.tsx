@@ -588,7 +588,7 @@ export default function App() {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="space-y-1.5">
                 <label className="text-sm font-medium flex items-center gap-2 text-zinc-700 dark:text-zinc-300">
-                  Macrocycle
+                  Grande période (Macrocycle)
                 </label>
                 <input 
                   type="text" 
@@ -600,7 +600,7 @@ export default function App() {
               </div>
               <div className="space-y-1.5">
                 <label className="text-sm font-medium flex items-center gap-2 text-zinc-700 dark:text-zinc-300">
-                  Mésocycle
+                  Focus de la semaine (Mésocycle)
                 </label>
                 <input 
                   type="text" 
@@ -612,7 +612,7 @@ export default function App() {
               </div>
               <div className="space-y-1.5">
                 <label className="text-sm font-medium flex items-center gap-2 text-zinc-700 dark:text-zinc-300">
-                  Microcycle (Pilier)
+                  Cible du jour (Microcycle)
                 </label>
                 <input 
                   type="text" 
@@ -860,12 +860,27 @@ export default function App() {
   }, [activeTab, activeProfileId]);
 
   const getCurrentPhases = () => {
-    const todayStr = format(new Date(), 'yyyy-MM-dd');
+    const today = startOfDay(new Date());
+    const todayStr = format(today, 'yyyy-MM-dd');
     const todaySession = sessions.find(s => s.date === todayStr);
 
     let macro = todaySession?.macrocycle || '';
     let meso = todaySession?.mesocycle || '';
     let micro = todaySession?.microcycle || '';
+
+    // Si pas de macro/meso pour aujourd'hui, on les déduit des séances de la semaine
+    if (!macro || !meso) {
+      const startOfCurrentWeek = startOfWeek(today, { weekStartsOn: 1 });
+      const endOfCurrentWeek = addDays(startOfCurrentWeek, 6);
+      
+      const currentWeekSessionWithPhases = sessions.find(s => {
+        const d = parseISO(s.date);
+        return isValid(d) && d >= startOfCurrentWeek && d <= endOfCurrentWeek && (s.macrocycle || s.mesocycle);
+      });
+
+      if (!macro && currentWeekSessionWithPhases?.macrocycle) macro = currentWeekSessionWithPhases.macrocycle;
+      if (!meso && currentWeekSessionWithPhases?.mesocycle) meso = currentWeekSessionWithPhases.mesocycle;
+    }
 
     const mainRace = races.find(r => r.isMainObjective);
 
@@ -1031,35 +1046,92 @@ export default function App() {
             </div>
 
             {/* Cycle Phases Indicators */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="bg-white dark:bg-zinc-900 px-5 py-4 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-sm flex items-start gap-4">
-                <div className="w-10 h-10 bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-500 rounded-lg flex items-center justify-center flex-shrink-0">
-                  <Flag className="w-5 h-5" />
+            {(() => {
+              const phases = getCurrentPhases();
+              const macroIsDefined = !phases.macro.includes('Non défini') && !phases.macro.includes('Calcul');
+              const mesoIsDefined = !phases.meso.includes('-') && !phases.meso.includes('Calcul');
+              const microIsDefined = !phases.micro.includes('Pas de séance');
+              
+              if (!macroIsDefined && !mesoIsDefined && !microIsDefined) {
+                return (
+                  <div className="space-y-4">
+                    <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl p-4 text-sm text-blue-800 dark:text-blue-200 shadow-sm">
+                      <p>
+                        <strong>Dynamique de la semaine :</strong> Ajoutez un objectif principal dans l'onglet "Courses" ou importez votre programme (CSV) pour générer automatiquement vos cycles d'entraînement.
+                      </p>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div className="bg-white dark:bg-zinc-900 px-5 py-4 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-sm flex items-start gap-4">
+                        <div className="w-10 h-10 bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-500 rounded-lg flex items-center justify-center flex-shrink-0">
+                          <Flag className="w-5 h-5" />
+                        </div>
+                        <div>
+                          <h4 className="text-sm font-semibold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider mb-1">Grande période</h4>
+                          <div className="font-bold text-zinc-900 dark:text-zinc-100">{phases.macro}</div>
+                        </div>
+                      </div>
+                      <div className="bg-white dark:bg-zinc-900 px-5 py-4 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-sm flex items-start gap-4">
+                        <div className="w-10 h-10 bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-500 rounded-lg flex items-center justify-center flex-shrink-0">
+                          <Calendar className="w-5 h-5" />
+                        </div>
+                        <div>
+                          <h4 className="text-sm font-semibold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider mb-1">Focus de la semaine</h4>
+                          <div className="font-bold text-zinc-900 dark:text-zinc-100">{phases.meso}</div>
+                        </div>
+                      </div>
+                      <div className="bg-white dark:bg-zinc-900 px-5 py-4 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-sm flex items-start gap-4">
+                        <div className="w-10 h-10 bg-teal-100 dark:bg-teal-900/30 text-teal-600 dark:text-teal-500 rounded-lg flex items-center justify-center flex-shrink-0">
+                          <Activity className="w-5 h-5" />
+                        </div>
+                        <div>
+                          <h4 className="text-sm font-semibold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider mb-1">Cible du jour</h4>
+                          <div className="font-bold text-zinc-900 dark:text-zinc-100">{phases.micro}</div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              }
+
+              return (
+                <div className="space-y-4">
+                  <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl p-4 text-sm text-blue-800 dark:text-blue-200 shadow-sm">
+                    <p>
+                      <strong>Votre entraînement :</strong> En ce moment, votre grande période est axée sur <span className="font-bold underline decoration-blue-300 dark:decoration-blue-700 underline-offset-2">{macroIsDefined ? phases.macro : 'une phase non définie'}</span>. Plus précisément cette semaine, vous travaillez <span className="font-bold underline decoration-indigo-300 dark:decoration-indigo-700 underline-offset-2">{mesoIsDefined ? phases.meso : 'un focus non défini'}</span>. {microIsDefined ? <>Enfin aujourd'hui, le but spécifique de la séance est : <span className="font-bold underline decoration-teal-300 dark:decoration-teal-700 underline-offset-2">{phases.micro}</span>.</> : "Pas de séance prévue aujourd'hui."}
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="bg-white dark:bg-zinc-900 px-5 py-4 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-sm flex items-start gap-4">
+                      <div className="w-10 h-10 bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-500 rounded-lg flex items-center justify-center flex-shrink-0">
+                        <Flag className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h4 className="text-sm font-semibold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider mb-1">Grande période</h4>
+                        <div className="font-bold text-zinc-900 dark:text-zinc-100">{phases.macro}</div>
+                      </div>
+                    </div>
+                    <div className="bg-white dark:bg-zinc-900 px-5 py-4 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-sm flex items-start gap-4">
+                      <div className="w-10 h-10 bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-500 rounded-lg flex items-center justify-center flex-shrink-0">
+                        <Calendar className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h4 className="text-sm font-semibold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider mb-1">Focus de la semaine</h4>
+                        <div className="font-bold text-zinc-900 dark:text-zinc-100">{phases.meso}</div>
+                      </div>
+                    </div>
+                    <div className="bg-white dark:bg-zinc-900 px-5 py-4 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-sm flex items-start gap-4">
+                      <div className="w-10 h-10 bg-teal-100 dark:bg-teal-900/30 text-teal-600 dark:text-teal-500 rounded-lg flex items-center justify-center flex-shrink-0">
+                        <Activity className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h4 className="text-sm font-semibold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider mb-1">Cible du jour</h4>
+                        <div className="font-bold text-zinc-900 dark:text-zinc-100">{phases.micro}</div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
-                <div>
-                  <h4 className="text-sm font-semibold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider mb-1">Macrocycle</h4>
-                  <div className="font-bold text-zinc-900 dark:text-zinc-100">{getCurrentPhases().macro}</div>
-                </div>
-              </div>
-              <div className="bg-white dark:bg-zinc-900 px-5 py-4 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-sm flex items-start gap-4">
-                <div className="w-10 h-10 bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-500 rounded-lg flex items-center justify-center flex-shrink-0">
-                  <Calendar className="w-5 h-5" />
-                </div>
-                <div>
-                  <h4 className="text-sm font-semibold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider mb-1">Mésocycle</h4>
-                  <div className="font-bold text-zinc-900 dark:text-zinc-100">{getCurrentPhases().meso}</div>
-                </div>
-              </div>
-              <div className="bg-white dark:bg-zinc-900 px-5 py-4 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-sm flex items-start gap-4">
-                <div className="w-10 h-10 bg-teal-100 dark:bg-teal-900/30 text-teal-600 dark:text-teal-500 rounded-lg flex items-center justify-center flex-shrink-0">
-                  <Activity className="w-5 h-5" />
-                </div>
-                <div>
-                  <h4 className="text-sm font-semibold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider mb-1">Microcycle (Aujourd'hui)</h4>
-                  <div className="font-bold text-zinc-900 dark:text-zinc-100">{getCurrentPhases().micro}</div>
-                </div>
-              </div>
-            </div>
+              );
+            })()}
 
             {/* Today's Sessions */}
             <div className="mb-8">
