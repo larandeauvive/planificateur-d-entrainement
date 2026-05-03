@@ -423,6 +423,59 @@ export default function App() {
     updateData(sessions, races, newAvails);
   };
 
+  const handleExportPlanningInfo = () => {
+    const data: any[] = [];
+    
+    data.push({
+      'Catégorie': '--- OBJECTIFS (COURSES) ---',
+      'Nom / Jour': '',
+      'Date / Statut': '',
+      'Détails / Durée': ''
+    });
+
+    races.forEach(r => {
+      data.push({
+        'Catégorie': 'Objectif',
+        'Nom / Jour': r.name,
+        'Date / Statut': r.date,
+        'Détails / Durée': r.isMainObjective ? 'Objectif Principal' : 'Préparation'
+      });
+    });
+
+    data.push({
+      'Catégorie': '',
+      'Nom / Jour': '',
+      'Date / Statut': '',
+      'Détails / Durée': ''
+    });
+    
+    data.push({
+      'Catégorie': '--- DISPONIBILITÉS HEBDOMADAIRES ---',
+      'Nom / Jour': '',
+      'Date / Statut': '',
+      'Détails / Durée': ''
+    });
+
+    availabilities.forEach(a => {
+      data.push({
+        'Catégorie': 'Disponibilité',
+        'Nom / Jour': a.dayName,
+        'Date / Statut': a.isAvailable ? 'OUI' : 'NON',
+        'Détails / Durée': a.duration || ''
+      });
+    });
+
+    const csv = Papa.unparse(data);
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', 'objectifs_et_disponibilites.csv');
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   const downloadWeekImage = async (weekId: string, weekLabel: string) => {
     const element = document.getElementById(weekId);
     if (!element) return;
@@ -1148,9 +1201,19 @@ export default function App() {
         {/* TAB: COURSES */}
         {activeTab === 'courses' && (
           <div className="space-y-8 max-w-3xl mx-auto">
-            <div>
-              <h2 className="text-2xl font-bold tracking-tight">Mes Courses</h2>
-              <p className="text-zinc-500 dark:text-zinc-400 mt-1">Ajoutez vos objectifs pour voir le compte à rebours sur le dashboard.</p>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <h2 className="text-2xl font-bold tracking-tight">Mes Objectifs et Disponibilités</h2>
+                <p className="text-zinc-500 dark:text-zinc-400 mt-1">Gérez vos courses et vos créneaux d'entraînement.</p>
+              </div>
+              <button 
+                onClick={handleExportPlanningInfo}
+                className="flex items-center justify-center sm:justify-start gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors shadow-sm"
+                title="Télécharger les infos pour le planning"
+              >
+                <Download className="w-4 h-4" />
+                <span>Télécharger Infos</span>
+              </button>
             </div>
 
             <div className="bg-white dark:bg-zinc-900 p-6 rounded-2xl border border-zinc-200 dark:border-zinc-800 shadow-sm space-y-4">
