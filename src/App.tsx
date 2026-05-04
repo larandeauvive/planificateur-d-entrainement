@@ -21,6 +21,7 @@ interface Session {
   macrocycle?: string;
   mesocycle?: string;
   microcycle?: string;
+  weekDescription?: string;
 }
 
 interface Race {
@@ -211,9 +212,10 @@ export default function App() {
       sessionNutrition: row['Conseil séance'] || row.sessionNutrition || '',
       dailyNutrition: row['Nutrition journée'] || row.dailyNutrition || '',
       dailyHydration: row['Hydratation journée'] || row.dailyHydration || '',
-      macrocycle: row.Macrocycle || row.macrocycle || '',
-      mesocycle: row.Mesocycle || row.mesocycle || '',
-      microcycle: row.Microcycle || row.microcycle || row.Pilier || row.pilier || '',
+      macrocycle: row.Macrocycle || row.macrocycle || row['Grande période'] || '',
+      mesocycle: row.Mesocycle || row.mesocycle || row['Focus de la semaine'] || '',
+      microcycle: row.Microcycle || row.microcycle || row.Pilier || row.pilier || row['Cible du jour'] || '',
+      weekDescription: row['Dynamique semaine'] || row.weekDescription || row['Dynamique de la semaine'] || row['Explication semaine'] || '',
       completed: (row.Terminé || row.termine || row.Completed || '').toUpperCase() === 'OUI'
     })).filter(s => s.date);
 
@@ -264,6 +266,7 @@ export default function App() {
       Macrocycle: s.macrocycle || '',
       Mesocycle: s.mesocycle || '',
       Microcycle: s.microcycle || '',
+      'Dynamique semaine': s.weekDescription || '',
       'Conseil séance': s.sessionNutrition || '',
       'Nutrition journée': s.dailyNutrition || '',
       'Hydratation journée': s.dailyHydration || '',
@@ -295,6 +298,7 @@ export default function App() {
       Macrocycle: s.macrocycle || '',
       Mesocycle: s.mesocycle || '',
       Microcycle: s.microcycle || '',
+      'Dynamique semaine': s.weekDescription || '',
       'Conseil séance': s.sessionNutrition || '',
       'Nutrition journée': s.dailyNutrition || '',
       'Hydratation journée': s.dailyHydration || '',
@@ -859,6 +863,75 @@ export default function App() {
     }
   }, [activeTab, activeProfileId]);
 
+  const getWeekDescription = (week: typeof weeks[0]) => {
+    for (const day of week.days) {
+      for (const session of day.sessions) {
+        if (session.weekDescription) {
+          return session.weekDescription;
+        }
+      }
+    }
+
+    let macro = '';
+    let meso = '';
+
+    for (const day of week.days) {
+      for (const session of day.sessions) {
+        if (!macro && session.macrocycle) macro = session.macrocycle;
+        if (!meso && session.mesocycle) meso = session.mesocycle;
+      }
+    }
+
+    const mainRace = races.find(r => r.isMainObjective);
+
+    if (mainRace && (!macro || !meso)) {
+      const raceD = startOfDay(parseISO(mainRace.date));
+      const currentD = startOfDay(week.start);
+      const daysToRace = differenceInDays(raceD, currentD);
+      const weeksToRace = Math.floor(daysToRace / 7);
+
+      if (!macro) {
+        if (daysToRace < 0) macro = "Phase 1 : Transition";
+        else if (weeksToRace <= 3) macro = "Phase 4 : Affûtage";
+        else if (weeksToRace <= 12) macro = "Phase 3 : Spécifique";
+        else if (weeksToRace <= 24) macro = "Phase 2 : Fondamentale";
+        else macro = "Phase 1 : Transition";
+      }
+
+      if (!meso) {
+        if (daysToRace < 0) meso = "Récupération";
+        else if (weeksToRace <= 3) {
+           if (weeksToRace === 0) meso = "Semaine 4 : Assimilation";
+           else if (weeksToRace === 1) meso = "Semaine 3 : Surcharge";
+           else meso = "Semaine 2 : Développement";
+        } else {
+           const offset = weeksToRace % 4; 
+           if (offset === 0) meso = "Semaine 4 : Assimilation";
+           else if (offset === 1) meso = "Semaine 3 : Choc";
+           else if (offset === 2) meso = "Semaine 2 : Surcharge";
+           else meso = "Semaine 1 : Développement";
+        }
+      }
+    }
+
+    macro = macro || 'une phase non définie';
+    meso = meso || 'un focus non défini';
+
+    const macroIsDefined = !macro.includes('non définie') && !macro.includes('Calcul');
+    const mesoIsDefined = !meso.includes('non défini') && !meso.includes('Calcul');
+
+    if (!macroIsDefined && !mesoIsDefined) {
+        return "Ajoutez un objectif principal dans l'onglet \"Courses\" (ou importez votre programme CSV) pour générer votre dynamique d'entraînement.";
+    }
+
+    return (
+      <>
+        En ce moment, la grande période est axée sur <span className="font-bold underline decoration-blue-300 dark:decoration-blue-700 underline-offset-2">{macro}</span>. 
+        Plus précisément cette semaine, vous travaillez <span className="font-bold underline decoration-indigo-300 dark:decoration-indigo-700 underline-offset-2">{meso}</span>.
+      </>
+    );
+  };
+
   const getCurrentPhases = () => {
     const today = startOfDay(new Date());
     const todayStr = format(today, 'yyyy-MM-dd');
@@ -1229,6 +1302,10 @@ export default function App() {
                     </div>
                   </div>
 
+                  <div className="bg-blue-50/50 dark:bg-blue-900/10 px-6 py-3 border-b border-zinc-200 dark:border-zinc-800 text-sm text-blue-800 dark:text-blue-200">
+                    <strong>Dynamique de la semaine :</strong> {getWeekDescription(week)}
+                  </div>
+
                   {/* Days List */}
                   <div className="divide-y divide-zinc-100 dark:divide-zinc-800/50">
                     {week.days.map(day => (
@@ -1484,7 +1561,7 @@ export default function App() {
                 <textarea 
                   value={csvInput}
                   onChange={e => setCsvInput(e.target.value)}
-                  placeholder="Date,Type,Description,Sensations,Macrocycle,Mesocycle,Microcycle,Terminé&#10;2024-05-12,Endurance,Footing 45min,Très bonnes sensations,Phase 2 : Fondamentale,Semaine 1,Pilier Endurance,OUI&#10;2024-05-14,Fractionné,10x400m,,,,NON"
+                  placeholder="Date,Type,Description,Sensations,Macrocycle,Mesocycle,Microcycle,Dynamique semaine,Terminé&#10;2024-05-12,Endurance,Footing 45min,Très bonnes sensations,Phase 2 : Fondamentale,Semaine 1,Pilier Endurance,Semaine axée sur le foncier.,OUI&#10;2024-05-14,Fractionné,10x400m,,,,,NON"
                   className="w-full h-64 px-4 py-3 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none font-mono text-sm whitespace-pre"
                 />
               </div>
