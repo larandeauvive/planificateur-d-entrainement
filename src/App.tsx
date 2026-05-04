@@ -258,21 +258,68 @@ export default function App() {
   };
 
   const handleExport = () => {
-    const data = sessions.map(s => ({
-      Date: s.date,
-      Type: s.type,
-      Description: s.description,
-      Sensations: s.sensations || '',
-      Macrocycle: s.macrocycle || '',
-      Mesocycle: s.mesocycle || '',
-      Microcycle: s.microcycle || '',
-      'Dynamique semaine': s.weekDescription || '',
-      'Conseil séance': s.sessionNutrition || '',
-      'Nutrition journée': s.dailyNutrition || '',
-      'Hydratation journée': s.dailyHydration || '',
-      'Lien Suunto': s.suuntoLink || '',
-      Terminé: s.completed ? 'OUI' : 'NON'
-    }));
+    const data: any[] = [];
+    
+    // Helper to keep CSV headers uniform
+    const getEmptyRow = () => ({
+      Date: '',
+      Type: '',
+      Description: '',
+      Sensations: '',
+      Macrocycle: '',
+      Mesocycle: '',
+      Microcycle: '',
+      'Dynamique semaine': '',
+      'Conseil séance': '',
+      'Nutrition journée': '',
+      'Hydratation journée': '',
+      'Lien Suunto': '',
+      Terminé: ''
+    });
+
+    data.push({ ...getEmptyRow(), Date: '--- OBJECTIFS (COURSES) ---' });
+    races.forEach(r => {
+      data.push({
+        ...getEmptyRow(),
+        Date: r.date,
+        Type: 'Course',
+        Description: r.name,
+        Sensations: r.isMainObjective ? 'Objectif Principal' : 'Préparation'
+      });
+    });
+
+    data.push(getEmptyRow());
+    data.push({ ...getEmptyRow(), Date: '--- DISPONIBILITÉS ---' });
+    availabilities.forEach(a => {
+      data.push({
+        ...getEmptyRow(),
+        Date: a.dayName,
+        Type: a.isAvailable ? 'OUI' : 'NON',
+        Description: a.duration || ''
+      });
+    });
+
+    data.push(getEmptyRow());
+    data.push({ ...getEmptyRow(), Date: '--- PROGRAMME D\'ENTRAÎNEMENT ---' });
+
+    sessions.forEach(s => {
+      data.push({
+        Date: s.date,
+        Type: s.type,
+        Description: s.description,
+        Sensations: s.sensations || '',
+        Macrocycle: s.macrocycle || '',
+        Mesocycle: s.mesocycle || '',
+        Microcycle: s.microcycle || '',
+        'Dynamique semaine': s.weekDescription || '',
+        'Conseil séance': s.sessionNutrition || '',
+        'Nutrition journée': s.dailyNutrition || '',
+        'Hydratation journée': s.dailyHydration || '',
+        'Lien Suunto': s.suuntoLink || '',
+        Terminé: s.completed ? 'OUI' : 'NON'
+      });
+    });
+
     const csv = Papa.unparse(data);
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
